@@ -53,7 +53,7 @@ GLOBAL OPTIONS:
 
 ### 使用
 
-使用 flamingo 前，请先下载 [Chromium]((https://www.chromium.org/getting-involved/download-chromium)) 可执行程序，并配置文件 flamingo.yml 中的配置项 **chromium_path**。
+使用 flamingo 前，请先下载 [Chromium](https://www.chromium.org/getting-involved/download-chromium) 可执行程序，并配置文件 flamingo.yml 中的配置项 **chromium_path**。在已安装 Chrome 应用的平台上运行，如果不指定路径，将从默认安装路径查找并启动 Chrome。
 
 flamingo 默认从同级目录的 flamingo.yml 文件中加载配置项，也可以使用 **--config** 选项指定任意路径的配置文件。
 
