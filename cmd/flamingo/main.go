@@ -66,7 +66,11 @@ func run(c *cli.Context) error {
 	pwd, _ := os.Getwd()
 	configFile := filepath.Join(pwd, "flamingo.yml")
 	if conf.cmd.configFile != "" {
-		configFile = filepath.Join(pwd, conf.cmd.configFile)
+		if filepath.IsAbs(conf.cmd.configFile) {
+			configFile = conf.cmd.configFile
+		} else {
+			configFile = filepath.Join(pwd, conf.cmd.configFile)
+		}
 	}
 
 	// 读文件
@@ -133,7 +137,11 @@ func run(c *cli.Context) error {
 
 	jsonFile := filepath.Join(pwd, "results.json")
 	if conf.cmd.jsonFile != "" {
-		jsonFile = conf.cmd.jsonFile
+		if filepath.IsAbs(conf.cmd.jsonFile) {
+			jsonFile = conf.cmd.jsonFile
+		} else {
+			jsonFile = filepath.Join(pwd, conf.cmd.jsonFile)
+		}
 	}
 	pkg.WriteFile(jsonFile, reqBytes)
 
