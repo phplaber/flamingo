@@ -137,8 +137,8 @@ func (tab *Tab) Run(browser *Browser, req *Request) []*Request {
 				request := getRequest(ereq.URL, ereq.Method, ereq.Headers, ereq.PostData)
 
 				executorCtx := getExecutorCtx(*ctx)
-				// 阻断不影响 DOM 结构的资源类型，如：样式表、图片和字体等
-				failResourceTypeList := []string{"Stylesheet", "Image", "Media", "Font", "TextTrack", "Prefetch", "Manifest", "SignedExchange", "Ping", "CSPViolationReport", "Preflight", "Other"}
+				// 阻断不影响 DOM 结构的资源类型，如：图片和字体等
+				failResourceTypeList := []string{"Image", "Media", "Font", "TextTrack", "Prefetch", "Manifest", "SignedExchange", "Ping", "CSPViolationReport", "Preflight", "Other"}
 				for _, rs := range failResourceTypeList {
 					if ev.ResourceType.String() == rs {
 						fetch.FailRequest(ev.RequestID, network.ErrorReasonAborted).Do(executorCtx)
@@ -150,6 +150,15 @@ func (tab *Tab) Run(browser *Browser, req *Request) []*Request {
 				if isIgnoreUrl(ereq.URL) {
 					fetch.FailRequest(ev.RequestID, network.ErrorReasonAborted).Do(executorCtx)
 					return
+				}
+				
+				// 放行样式表和脚本
+				goResourceTypeList := []string{"Stylesheet", "Script"}
+				for _, rs := range goResourceTypeList {
+					if ev.ResourceType.String() == rs {
+						fetch.ContinueRequest(ev.RequestID).Do(executorCtx)
+						return
+					}
 				}
 
 				// 异步请求
