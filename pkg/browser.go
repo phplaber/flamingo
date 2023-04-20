@@ -239,6 +239,9 @@ func (tab *Tab) Run(browser *Browser, req *Request) []*Request {
 
 					return
 				}
+				
+				// 放行其它资源类型（如：WebSocket）请求
+				fetch.ContinueRequest(ev.RequestID).Do(executorCtx)
 			}(&tctx, ev)
 		case *page.EventLoadEventFired:
 			// 页面加载完成
