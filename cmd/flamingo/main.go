@@ -131,7 +131,11 @@ func run(c *cli.Context) error {
 		log.Fatal("marshal request list error:", err.Error())
 	}
 
-	pkg.WriteFile(conf.cmd.jsonFile, reqBytes)
+	jsonFile := filepath.Join(pwd, "results.json")
+	if conf.cmd.jsonFile != "" {
+		jsonFile = conf.cmd.jsonFile
+	}
+	pkg.WriteFile(jsonFile, reqBytes)
 
 	log.Infof("Crawling finished, %d requests crawled in %s.", len(requestList), time.Since(start))
 	return nil
@@ -163,7 +167,6 @@ func main() {
 				Name:        "output-json",
 				Usage:       "custom output json `file` path, saved full request dump",
 				Destination: &conf.cmd.jsonFile,
-				Required:    true,
 			},
 			&cli.StringFlag{
 				Name:        "log-level",
