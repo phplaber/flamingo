@@ -379,7 +379,7 @@ const (
 			name: ['伟', '芳', '娜', '敏', '静'],
 			lastname: ['zhang', 'li', 'wang'],
 			firstname: ['wei', 'fang', 'na', 'min', 'jing'],
-			address: ['北京市朝阳区', '上海市闵行区', '⼴东省⼴州市', '⼴东省深圳市'],
+			address: ['北京市朝阳区', '上海市闵行区', '广东省广州市', '广东省深圳市'],
 			domain: ['.com', '.net', '.tech'],
 		};
 		
