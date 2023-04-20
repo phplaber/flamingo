@@ -163,15 +163,19 @@ func (tab *Tab) Run(browser *Browser, req *Request) []*Request {
 
 				// 异步请求
 				// 不改变 location，记录请求后放行
+				// 有些场景样式表等静态资源也会异步加载，需注意过滤
 				if ev.ResourceType.String() == "XHR" || ev.ResourceType.String() == "Fetch" {
 					if ev.ResourceType.String() == "XHR" {
 						request.Source = config.LinkSource["fromXHR"]
 					} else {
 						request.Source = config.LinkSource["fromFetch"]
 					}
-					result.addTaskResult(request)
-
 					fetch.ContinueRequest(ev.RequestID).Do(executorCtx)
+					
+					if isNeed(ereq.URL, req.URL.String()) {
+						// 记录请求对象
+						result.addTaskResult(request)
+					}
 
 					return
 				}
