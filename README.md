@@ -4,12 +4,11 @@
 
 ### 特性
 
-1.  驱动 Headless Chrome，搭建原生浏览器爬虫环境；
-2.  使用协程池管理多爬虫任务；
-3.  遍历 DOM 节点，获取页面中静态链接，包括注释中的链接；
-4.  使用 Hook 技术收集 DOM 0级和 DOM 2级事件，并自动化触发；
-5.  监控 DOM 变化，发现动态产生的链接；
-6.  遍历表单节点，自动化填充和提交表单。
+1.  驱动 Headless Chrome，构建原生浏览器爬虫；
+2.  遍历 DOM 节点，获取页面中静态链接，包括注释中的链接；
+3.  使用 Hook 技术收集 DOM 0级和 DOM 2级事件，并自动化触发；
+4.  监控 DOM 变化，发现动态产生的链接；
+5.  遍历表单节点，自动化填充和提交表单。
 
 ### 安装
 
@@ -21,45 +20,29 @@
 $ make build_all
 ```
 
-在 Linux 或 Darwin 平台上运行，请赋予二进制程序可执行权限。
+在 Linux 或 macOS 平台上运行，请赋予二进制程序可执行权限。
 
 #### 运行
 
 ```bash
-$ ./flamingo -h
-
-NAME:
-   flamingo - A browser crawler for web vulnerability scanner
-
-USAGE:
-   flamingo [global options] url
-
-VERSION:
-   0.0.1
-
-AUTHOR:
-   yns0ng <phplaber@gmail.com>
-
-COMMANDS:
-   help, h  Shows a list of commands or help for one command
-
-GLOBAL OPTIONS:
-   --config file, -c file  Load options from a config file
-   --output-json file      custom output json file path, saved full request dump
-   --log-level value       custom log level (debug|info|warn|error|fatal)
-   --gui                   display browser GUI (default: false)
-   --help, -h              show help
-   --version, -v           print the version
+$ ./bin/darwin-amd64/flamingo -h
+Usage of ./bin/darwin-amd64/flamingo:
+  -chromium_path string
+    	The path of chromium executable file
+  -ua string
+    	User-Agent header (default "flamingo")
+  -url string
+    	Initial target URL
+  -version
+    	The version of program
 ```
 
 ### 使用
 
-使用 flamingo 前，请先下载 [Chromium](https://www.chromium.org/getting-involved/download-chromium) 可执行程序，并配置文件 flamingo.yml 中的配置项 **chromium_path**。在已安装 Chrome 应用的平台上运行，如果不指定路径，将从默认安装路径查找并启动 Chrome。
-
-flamingo 默认从同级目录的 flamingo.yml 文件中加载配置项，也可以使用 **--config** 选项指定任意路径的配置文件。
+使用 flamingo 前，请先下载 [Chromium](https://www.chromium.org/getting-involved/download-chromium) 可执行程序，并通过 **chromium_path** 设置 Chromium 路径。在已安装 Chrome 应用的平台上运行，如果不指定路径，将从默认安装路径查找并启动 Chrome。
 
 ```bash
-$ ./flamingo http://testphp.vulnweb.com/
+$ ./flamingo -url http://testphp.vulnweb.com/AJAX/index.php
 ```
 
 运行结果截图：
