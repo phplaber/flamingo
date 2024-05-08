@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -13,11 +14,11 @@ import (
 var version string
 
 func main() {
-	url := flag.String("url", "", "Initial target URL")
-	ua := flag.String("ua", "flamingo", "User-Agent header")
-	var cookie string
+	var url, ua, cookie, chromiumPath string
+	flag.StringVar(&url, "url", "", "Initial target URL")
+	flag.StringVar(&ua, "ua", "flamingo", "User-Agent header")
 	flag.StringVar(&cookie, "cookie", "", "HTTP Cookie (e.g. \"PHPSESSID=a8d127e..\")")
-	chromiumPath := flag.String("chromium_path", "", "The path of chromium executable file")
+	flag.StringVar(&chromiumPath, "chromium_path", "", "The path of chromium executable file")
 	printVer := flag.Bool("version", false, "The version of program")
 	flag.Parse()
 
@@ -37,6 +38,11 @@ func main() {
 	}()
 
 	// 校验、处理程序参数
+	if url == "" || !strings.HasPrefix(url, "http") {
+		fmt.Println("[-] URL is required and is prefixed with 'http'")
+		os.Exit(0)
+	}
+
 	if cookie != "" {
 		var newCookies []string
 		cookies := strings.Split(cookie, ";")
@@ -49,13 +55,20 @@ func main() {
 		cookie = strings.Join(newCookies, "; ")
 	}
 
+	if chromiumPath != "" {
+		if _, err := os.Stat(chromiumPath); errors.Is(err, os.ErrNotExist) {
+			fmt.Printf("[-] %s does not exist\n", chromiumPath)
+			os.Exit(0)
+		}
+	}
+
 	// 自定义配置
 	conf := map[string]interface{}{
-		"chromiumPath": *chromiumPath,
+		"chromiumPath": chromiumPath,
 	}
 
 	// 爬虫入口
-	entrance := geneRequest("GET", *url, map[string]interface{}{"User-Agent": *ua, "Cookie": cookie}, "", "entrance")
+	entrance := geneRequest("GET", url, map[string]interface{}{"User-Agent": ua, "Cookie": cookie}, "", "entrance")
 
 	// 爬取页面各处 request
 	var requests []request
