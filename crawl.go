@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -302,6 +303,28 @@ func crawl(req *request, reqs *[]request, conf map[string]interface{}) {
 			_, err := page.AddScriptToEvaluateOnNewDocument(initHookJS).Do(ctx)
 			if err != nil {
 				return err
+			}
+			return nil
+		}),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			// 设置 Cookie
+			cookie := req.headers["Cookie"].(string)
+			if cookie != "" {
+				u, _ := url.Parse(req.url)
+				host := u.Host
+				if strings.Contains(host, ":") {
+					host, _, _ = net.SplitHostPort(host)
+				}
+				cookies := strings.Split(cookie, "; ")
+				for _, c := range cookies {
+					item := strings.SplitN(c, "=", 2)
+					err := network.SetCookie(item[0], item[1]).
+						WithDomain(host).
+						Do(ctx)
+					if err != nil {
+						return err
+					}
+				}
 			}
 			return nil
 		}),
