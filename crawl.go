@@ -241,20 +241,14 @@ func crawl(req *request, reqs *[]request, conf map[string]interface{}) {
 				c := chromedp.FromContext(ctx)
 				targetCtx := cdp.WithExecutor(ctx, c.Target)
 
-				/*
-					1. 监测 DOM 变化
-					2. 收集 URL和事件，并触发事件
-					3. 自动填充和提交表单
-				*/
-
 				// 等待 DOM 稳定
 				time.Sleep(200 * time.Millisecond)
 				// 监测 DOM 变化
 				runtime.Evaluate(mutationObserverJS).Do(targetCtx)
-				// 收集 URL和事件，并触发事件
-				runtime.Evaluate(collectLinksAndEventsJS).Do(targetCtx)
 				// 自动填充和提交表单
 				runtime.Evaluate(fillAndSubmitFormsJS).Do(targetCtx)
+				// 收集 URL和事件，并触发事件
+				runtime.Evaluate(collectLinksAndEventsJS).Do(targetCtx)
 
 				// 硬编码，待优化
 				time.Sleep(1 * time.Minute)

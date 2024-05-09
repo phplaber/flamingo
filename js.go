@@ -45,7 +45,7 @@ const (
 
 		// 锁定
 		const actions = ['open', 'close'];
-		actions.forEach(function (action) {
+		actions.forEach((action) => {
 			Object.defineProperty(window, action, {
 				writable: false, 
 				configurable: false,
@@ -68,7 +68,7 @@ const (
 		// 枚举 HTML DOM 事件: https://www.w3school.com.cn/jsref/dom_obj_event.asp
 		const events = ['abort', 'afterprint', 'animationend', 'animationiteration', 'animationstart', 'beforeprint', 'beforeunload', 'blur', 'canplay', 'canplaythrough', 'change', 'click', 'contextmenu', 'copy', 'cut', 'dblclick', 'drag', 'dragend', 'dragenter', 'dragleave', 'dragover', 'dragstart', 'drop', 'durationchange', 'ended', 'error', 'focus', 'focusin', 'focusout', 'fullscreenchange', 'fullscreenerror', 'hashchange', 'input', 'invalid', 'keydown', 'keypress', 'keyup', 'load', 'loadeddata', 'loadedmetadata', 'loadstart', 'message', 'mousedown', 'mouseenter', 'mouseleave', 'mousemove', 'mouseout', 'mouseover', 'mouseup', 'mousewheel', 'offline', 'online', 'open', 'pagehide', 'pageshow', 'paste', 'pause', 'play', 'playing', 'popstate', 'progress', 'ratechange', 'reset', 'resize', 'scroll', 'search', 'seeked', 'seeking', 'select', 'show', 'stalled', 'storage', 'submit', 'suspend', 'timeupdate', 'toggle', 'touchcancel', 'touchend', 'touchmove', 'touchstart', 'transitionend', 'unload', 'volumechange', 'waiting', 'wheel'];
 
-		events.forEach(function (eName) {
+		events.forEach((eName) => {
 			Object.defineProperty(HTMLElement.prototype, 'on' + eName, {
 				configurable: false,
 				set: function(newValue){
@@ -125,7 +125,7 @@ const (
 
 		// 创建观察器实例
 		let observer = new MutationObserver(function(mutations){
-			mutations.forEach(function (mutation) {
+			mutations.forEach((mutation) => {
 				if (mutation.type === 'childList') {
 					// 有新的节点
 					for	(let i = 0; i < mutation.addedNodes.length; i++) {
@@ -190,84 +190,6 @@ const (
 		});
 	})();`
 
-	// 遍历元素，收集链接和事件，并触发事件
-	collectLinksAndEventsJS = `(function(){
-		let delay = 0;
-
-		let treeWalker = document.createTreeWalker(
-			document.documentElement,
-			NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT,
-			{ acceptNode(node) { return NodeFilter.FILTER_ACCEPT; } }
-		);
-
-		// 检测注释里的完整 URL
-		const urlRe = /https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&\/=]*)/g;
-		let eList = [];
-		
-		while(treeWalker.nextNode()) {
-			let cNode = treeWalker.currentNode;
-			if (cNode.nodeType === Node.COMMENT_NODE) {
-				// 注释节点
-				let match;
-				while ((match = urlRe.exec(cNode.nodeValue)) !== null) {
-					// 记录链接
-					window.sendLink(JSON.stringify({url: new URL(match[0], document.baseURI).href, source: 'comment'}));
-				}
-			} else {
-				for(let i = 0; i < cNode.attributes.length; i++) {
-					let attr = cNode.attributes[i];
-
-					// 收集链接
-					if (linkAttr.includes(attr.nodeName)) {
-						if (attr.nodeValue.toLowerCase().startsWith('javascript:')) {
-							// 执行 javascript 代码
-							try {
-								if (!delay) {
-									eval(attr.nodeValue);
-								} else {
-									setTimeout(() => {
-										eval(attr.nodeValue);
-									}, delay);
-								}
-								delay += 5000;
-							} catch (e) {}
-						} else {
-							// 记录链接
-							window.sendLink(JSON.stringify({url: new URL(attr.nodeValue, document.baseURI).href, source: 'href'}));
-						}
-					}
-
-					// 收集事件
-					if (attr.nodeName.startsWith('on')) {
-						// 内联事件
-						eList.push({"ename": attr.nodeName.substring(2), "cnode": cNode});
-					} else if (attr.nodeName === dom_event_flag) {
-						// DOM 事件
-						let eArr = attr.nodeValue.split(',');
-						eArr.forEach(function(eName) {
-							eList.push({"ename": eName, "cnode": cNode});
-						});
-					}
-				}
-			}
-		};
-
-		// 触发事件
-		eList.forEach(function (e) {
-			let event = new Event(e.ename);
-			try {
-				if (!delay) {
-					e.cnode.dispatchEvent(event);
-				} else {
-					setTimeout(() => {
-						e.cnode.dispatchEvent(event);
-					}, delay);
-				}
-				delay += 5000;
-			} catch (err) {}
-		});
-	})();`
-
 	// 填充和提交表单
 	fillAndSubmitFormsJS = `(function(){
 		/*
@@ -326,7 +248,7 @@ const (
 			let form = document.forms[i];
 			// 将表单 target 指向 iframe
 			form.setAttribute('target', 'thiis_is_a_iframe_7');
-			for(let j = 0; j < form.length; j++) {
+			for (let j = 0; j < form.length; j++) {
 				let ele = form[j];
 				if (ele.nodeName == 'INPUT') {
 					if (ele.type == 'text') {
@@ -392,26 +314,95 @@ const (
 		}
 
 		// 提交表单
-		forms.forEach(function(form) {
+		forms.forEach((form) => {
 			try {
 				form.submit();
 			} catch(e) {
-				for(let i = 0; i < form.length; i++) {
-        			if (form[i].nodeName == 'INPUT') {
-        				if (form[i].type == 'submit' || form[i].type == 'button') {
-        					// 点击提交按钮或其它按钮
-        					try {
-        						form[i].click();
-        					} catch (e) {}
-        				}
-        			} else if (form[i].nodeName == 'BUTTON') {
-        				// 点击按钮
+				// 处理表单元素的 id 或 name 属性值为 submit 的情况
+				form.forEach((element) => {
+					if ((element.nodeName == 'INPUT' && (element.type == 'submit' || element.type == 'button')) || element.nodeName == 'BUTTON') {
+        				// 点击提交按钮或其它按钮
         				try {
-        					form[i].click();
+        					element.click();
         				} catch (e) {}
-        			}
-        		}
+					}
+				});
 			}
+		});
+	})();`
+
+	// 遍历元素，收集链接和事件，并触发事件
+	collectLinksAndEventsJS = `(function(){
+		let delay = 0;
+
+		let treeWalker = document.createTreeWalker(
+			document.documentElement,
+			NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT,
+			{ acceptNode(node) { return NodeFilter.FILTER_ACCEPT; } }
+		);
+
+		// 检测注释里的完整 URL
+		const urlRe = /https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&\/=]*)/g;
+		let eList = [];
+		
+		while(treeWalker.nextNode()) {
+			let cNode = treeWalker.currentNode;
+			if (cNode.nodeType === Node.COMMENT_NODE) {
+				// 注释节点
+				let match;
+				while ((match = urlRe.exec(cNode.nodeValue)) !== null) {
+					// 记录链接
+					window.sendLink(JSON.stringify({url: new URL(match[0], document.baseURI).href, source: 'comment'}));
+				}
+			} else {
+				for (let i = 0; i < cNode.attributes.length; i++) {
+					let attr = cNode.attributes[i];
+
+					// 收集链接
+					if (linkAttr.includes(attr.nodeName)) {
+						if (attr.nodeValue.toLowerCase().startsWith('javascript:')) {
+							// 执行 javascript 代码
+							try {
+								if (!delay) {
+									eval(attr.nodeValue);
+								} else {
+									setTimeout(() => {
+										eval(attr.nodeValue);
+									}, delay);
+								}
+								delay += 5000;
+							} catch (e) {}
+						} else {
+							// 记录链接
+							window.sendLink(JSON.stringify({url: new URL(attr.nodeValue, document.baseURI).href, source: 'href'}));
+						}
+					}
+
+					// 收集事件
+					if (attr.nodeName.startsWith('on')) {
+						// 内联事件
+						eList.push({"ename": attr.nodeName.substring(2), "cnode": cNode});
+					} else if (attr.nodeName === dom_event_flag) {
+						// DOM 事件
+						let eArr = attr.nodeValue.split(',');
+						eArr.forEach((eName) => eList.push({"ename": eName, "cnode": cNode}));
+					}
+				}
+			}
+		};
+
+		// 触发事件
+		eList.forEach((e) => {
+			try {
+				if (!delay) {
+					e.cnode.dispatchEvent(new Event(e.ename));
+				} else {
+					setTimeout(() => {
+						e.cnode.dispatchEvent(new Event(e.ename));
+					}, delay);
+				}
+				delay += 5000;
+			} catch (err) {}
 		});
 	})();`
 )
