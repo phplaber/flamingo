@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"strings"
@@ -33,14 +34,13 @@ func main() {
 	signal.Notify(s, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGINT)
 	go func() {
 		<-s
-		fmt.Println("[+] program was interrupted")
+		log.Println("program was interrupted")
 		os.Exit(0)
 	}()
 
 	// 校验、处理程序参数
 	if url == "" || !strings.HasPrefix(url, "http") {
-		fmt.Println("[-] URL is required and is prefixed with 'http'")
-		os.Exit(0)
+		log.Fatalln("URL is required and is prefixed with 'http'")
 	}
 
 	if cookie != "" {
@@ -57,8 +57,7 @@ func main() {
 
 	if chromiumPath != "" {
 		if _, err := os.Stat(chromiumPath); errors.Is(err, os.ErrNotExist) {
-			fmt.Printf("[-] %s does not exist\n", chromiumPath)
-			os.Exit(0)
+			log.Fatalf("%s does not exist\n", chromiumPath)
 		}
 	}
 
@@ -77,6 +76,6 @@ func main() {
 
 	// 输出 json
 	for _, req := range requests {
-		fmt.Printf("++ req ++: %+v\n", req)
+		log.Println(req)
 	}
 }

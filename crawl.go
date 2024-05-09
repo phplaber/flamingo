@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -89,13 +88,15 @@ func crawl(req *request, reqs *[]request, conf map[string]interface{}) {
 
 				res, err := client.Do(req)
 				if err != nil {
-					log.Fatal("request error: ", err)
+					log.Println("request error: ", err)
+					return
 				}
 				defer res.Body.Close()
 				// 加载 html 文档
 				doc, err := goquery.NewDocumentFromReader(res.Body)
 				if err != nil {
-					log.Fatal("load doc error: ", err)
+					log.Println("load doc error: ", err)
+					return
 				}
 
 				// 找出文档里链接并保存
@@ -337,9 +338,9 @@ func crawl(req *request, reqs *[]request, conf map[string]interface{}) {
 	select {
 	case <-c:
 		// 正常
-		fmt.Println("[+] crawl successfully")
+		log.Println("crawl successfully")
 	case <-time.After(3 * time.Minute):
 		// 超时
-		fmt.Println("[-] crawl timeout")
+		log.Println("crawl timeout")
 	}
 }
