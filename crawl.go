@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -55,7 +56,7 @@ func crawl(req *request, reqs *[]request, conf map[string]interface{}) {
 	defer cancel()
 
 	// 设置超时时间
-	ctx, cancel = context.WithTimeout(ctx, 5*time.Minute)
+	ctx, cancel = context.WithTimeout(ctx, conf["browserTimeout"].(time.Duration))
 	defer cancel()
 
 	var wg sync.WaitGroup
@@ -251,11 +252,11 @@ func crawl(req *request, reqs *[]request, conf map[string]interface{}) {
 				// 自动填充和提交表单
 				runtime.Evaluate(fillAndSubmitFormsJS).Do(targetCtx)
 				// 触发事件和执行 JS 伪协议
-				runtime.Evaluate(triggerEventsJS).Do(targetCtx)
+				runtime.Evaluate(fmt.Sprintf(triggerEventsJS, conf["triggerEventInterval"].(int), conf["triggerEventInterval"].(int))).Do(targetCtx)
 
 				// 等待以上 JS 中 setTimeout 执行
 				// 页面 Ajax 化程度越高，等待时间越长
-				time.Sleep(1 * time.Minute)
+				time.Sleep(conf["waitJSExecTime"].(time.Duration))
 			}()
 		case *page.EventJavascriptDialogOpening:
 			// 取消对话框
@@ -342,7 +343,7 @@ func crawl(req *request, reqs *[]request, conf map[string]interface{}) {
 	case <-c:
 		// 正常
 		log.Println("crawl successfully")
-	case <-time.After(3 * time.Minute):
+	case <-time.After(conf["tabTimeout"].(time.Duration)):
 		// 超时
 		log.Println("crawl timeout")
 	}

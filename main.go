@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // 版本号 编译时赋值
@@ -19,6 +20,10 @@ func main() {
 	flag.StringVar(&url, "url", "", "Initial target URL")
 	flag.StringVar(&ua, "ua", "flamingo", "User-Agent header")
 	flag.StringVar(&cookie, "cookie", "", "HTTP Cookie (e.g. \"PHPSESSID=a8d127e..\")")
+	browserTimeout := flag.Duration("browser_timeout", 5*time.Minute, "Browser timeout")
+	tabTimeout := flag.Duration("tab_timeout", 3*time.Minute, "Tab timeout")
+	waitJSExecTime := flag.Duration("wait_js_exec_time", 1*time.Minute, "Wait js exec timeout")
+	triggerEventInterval := flag.Int("trigger_event_interval", 5000, "Trigger event interval, unit:ms")
 	flag.StringVar(&chromiumPath, "chromium_path", "", "The path of chromium executable file")
 	printVer := flag.Bool("version", false, "The version of program")
 	flag.Parse()
@@ -63,7 +68,11 @@ func main() {
 
 	// 自定义配置
 	conf := map[string]interface{}{
-		"chromiumPath": chromiumPath,
+		"chromiumPath":         chromiumPath,
+		"browserTimeout":       *browserTimeout,
+		"tabTimeout":           *tabTimeout,
+		"waitJSExecTime":       *waitJSExecTime,
+		"triggerEventInterval": *triggerEventInterval,
 	}
 
 	// 爬虫入口

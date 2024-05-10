@@ -403,7 +403,7 @@ const (
 								eval(attr.nodeValue);
 							}, delay);
 						}
-						delay += 5000;
+						delay += %d;
 					} catch (e) {}
 				}
 
@@ -429,7 +429,7 @@ const (
 						e.cnode.dispatchEvent(new Event(e.ename));
 					}, delay);
 				}
-				delay += 5000;
+				delay += %d;
 			} catch (err) {}
 		});
 	})();`
