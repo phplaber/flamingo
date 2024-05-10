@@ -24,6 +24,7 @@ func main() {
 	tabTimeout := flag.Duration("tab_timeout", 3*time.Minute, "Tab timeout")
 	waitJSExecTime := flag.Duration("wait_js_exec_time", 1*time.Minute, "Wait js exec timeout")
 	triggerEventInterval := flag.Int("trigger_event_interval", 5000, "Trigger event interval, unit:ms")
+	mode := flag.Bool("gui", false, "The browser mode, default headless")
 	flag.StringVar(&chromiumPath, "chromium_path", "", "The path of chromium executable file")
 	printVer := flag.Bool("version", false, "The version of program")
 	flag.Parse()
@@ -73,6 +74,7 @@ func main() {
 		"tabTimeout":           *tabTimeout,
 		"waitJSExecTime":       *waitJSExecTime,
 		"triggerEventInterval": *triggerEventInterval,
+		"mode":                 *mode,
 	}
 
 	// 爬虫入口

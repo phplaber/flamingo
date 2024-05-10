@@ -32,7 +32,7 @@ type bindingPayload struct {
 
 func crawl(req *request, reqs *[]request, conf map[string]interface{}) {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", false),
+		chromedp.Flag("headless", !conf["mode"].(bool)),
 	)
 
 	// 设置 chromium 可执行文件路径
