@@ -26,15 +26,27 @@ $ make build_all
 
 ```bash
 $ ./bin/darwin-amd64/flamingo -h
-Usage of ./bin/darwin-amd64/flamingo:
+Usage of ./flamingo:
+  -browser_timeout duration
+    	Browser timeout (default 5m0s)
   -chromium_path string
     	The path of chromium executable file
+  -cookie string
+    	HTTP Cookie (e.g. "PHPSESSID=a8d127e..")
+  -gui
+    	The browser mode
+  -tab_timeout duration
+    	Tab timeout (default 3m0s)
+  -trigger_event_interval int
+    	Trigger event interval, unit:ms (default 5000)
   -ua string
     	User-Agent header (default "flamingo")
   -url string
     	Initial target URL
   -version
     	The version of program
+  -wait_js_exec_time duration
+    	Wait js exec timeout (default 1m0s)
 ```
 
 ### 使用
