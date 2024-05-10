@@ -34,7 +34,7 @@ Usage of ./flamingo:
   -cookie string
     	HTTP Cookie (e.g. "PHPSESSID=a8d127e..")
   -gui
-    	The browser mode
+    	The browser mode, default headless
   -tab_timeout duration
     	Tab timeout (default 3m0s)
   -trigger_event_interval int
