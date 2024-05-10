@@ -214,12 +214,12 @@ const (
 			1-3. 按类型和name属性值填充表单
 		2. 提交表单
 			2-1. 点击提交按钮 (<input type="submit">)
-			2-2. JS 提交表单 (form.submit())
-			2-3. 点击其他按钮
+			2-2. 点击其他按钮
 				- <button>
 				- <input type="button">
 		*/
 
+		let delay = 0;
 		let corpus = {
 			digit: '123456789',
 			letter: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ',
@@ -316,25 +316,38 @@ const (
 		// 提交表单
 		forms.forEach((form) => {
 			try {
-				form.submit();
+				if (!delay) {
+					form.submit();
+				} else {
+					setTimeout(() => {
+						form.submit();
+					}, delay);
+				}
+				delay += 500;
 			} catch(e) {
 				// 处理表单元素的 id 或 name 属性值为 submit 的情况
-				form.forEach((element) => {
+				for (let i = 0; i < form.length; i++) {
+					let element = form[i];
 					if ((element.nodeName == 'INPUT' && (element.type == 'submit' || element.type == 'button')) || element.nodeName == 'BUTTON') {
         				// 点击提交按钮或其它按钮
         				try {
-        					element.click();
+							if (!delay) {
+								element.click();
+							} else {
+								setTimeout(() => {
+									element.click();
+								}, delay);
+							}
+							delay += 500;
         				} catch (e) {}
 					}
-				});
+				}
 			}
 		});
 	})();`
 
-	// 遍历元素，收集链接和事件，并触发事件
-	collectLinksAndEventsJS = `(function(){
-		let delay = 0;
-
+	// 遍历元素，收集链接
+	collectLinksJS = `(function(){
 		let treeWalker = document.createTreeWalker(
 			document.documentElement,
 			NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT,
@@ -343,7 +356,6 @@ const (
 
 		// 检测注释里的完整 URL
 		const urlRe = /https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&\/=]*)/g;
-		let eList = [];
 		
 		while(treeWalker.nextNode()) {
 			let cNode = treeWalker.currentNode;
@@ -351,45 +363,61 @@ const (
 				// 注释节点
 				let match;
 				while ((match = urlRe.exec(cNode.nodeValue)) !== null) {
-					// 记录链接
 					window.sendLink(JSON.stringify({url: new URL(match[0], document.baseURI).href, source: 'comment'}));
 				}
 			} else {
+				// 元素节点
 				for (let i = 0; i < cNode.attributes.length; i++) {
 					let attr = cNode.attributes[i];
 
-					// 收集链接
-					if (linkAttr.includes(attr.nodeName)) {
-						if (attr.nodeValue.toLowerCase().startsWith('javascript:')) {
-							// 执行 javascript 代码
-							try {
-								if (!delay) {
-									eval(attr.nodeValue);
-								} else {
-									setTimeout(() => {
-										eval(attr.nodeValue);
-									}, delay);
-								}
-								delay += 5000;
-							} catch (e) {}
-						} else {
-							// 记录链接
-							window.sendLink(JSON.stringify({url: new URL(attr.nodeValue, document.baseURI).href, source: 'href'}));
-						}
-					}
-
-					// 收集事件
-					if (attr.nodeName.startsWith('on')) {
-						// 内联事件
-						eList.push({"ename": attr.nodeName.substring(2), "cnode": cNode});
-					} else if (attr.nodeName === dom_event_flag) {
-						// DOM 事件
-						let eArr = attr.nodeValue.split(',');
-						eArr.forEach((eName) => eList.push({"ename": eName, "cnode": cNode}));
+					if (linkAttr.includes(attr.nodeName) && !attr.nodeValue.toLowerCase().startsWith('javascript:')) {
+						window.sendLink(JSON.stringify({url: new URL(attr.nodeValue, document.baseURI).href, source: 'href'}));
 					}
 				}
 			}
-		};
+		}
+	})();`
+
+	// 触发事件和执行 JS 伪协议
+	triggerEventsJS = `(function(){
+		let delay = 0;
+		let treeWalker = document.createTreeWalker(
+			document.documentElement,
+			NodeFilter.SHOW_ELEMENT,
+			{ acceptNode(node) { return NodeFilter.FILTER_ACCEPT; } }
+		);
+
+		let eList = [];
+		while(treeWalker.nextNode()) {
+			let cNode = treeWalker.currentNode;
+			for (let i = 0; i < cNode.attributes.length; i++) {
+				let attr = cNode.attributes[i];
+
+				// 执行 JS 伪协议
+				if (linkAttr.includes(attr.nodeName) && attr.nodeValue.toLowerCase().startsWith('javascript:')) {
+					try {
+						if (!delay) {
+							eval(attr.nodeValue);
+						} else {
+							setTimeout(() => {
+								eval(attr.nodeValue);
+							}, delay);
+						}
+						delay += 5000;
+					} catch (e) {}
+				}
+
+				// 收集事件
+				if (attr.nodeName.startsWith('on')) {
+					// 内联事件
+					eList.push({"ename": attr.nodeName.substring(2), "cnode": cNode});
+				} else if (attr.nodeName === dom_event_flag) {
+					// DOM 事件
+					let eArr = attr.nodeValue.split(',');
+					eArr.forEach((eName) => eList.push({"ename": eName, "cnode": cNode}));
+				}
+			}
+		}
 
 		// 触发事件
 		eList.forEach((e) => {

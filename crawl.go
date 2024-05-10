@@ -246,12 +246,15 @@ func crawl(req *request, reqs *[]request, conf map[string]interface{}) {
 				time.Sleep(200 * time.Millisecond)
 				// 监测 DOM 变化
 				runtime.Evaluate(mutationObserverJS).Do(targetCtx)
+				// 收集初始 DOM 中的链接
+				runtime.Evaluate(collectLinksJS).Do(targetCtx)
 				// 自动填充和提交表单
 				runtime.Evaluate(fillAndSubmitFormsJS).Do(targetCtx)
-				// 收集 URL和事件，并触发事件
-				runtime.Evaluate(collectLinksAndEventsJS).Do(targetCtx)
+				// 触发事件和执行 JS 伪协议
+				runtime.Evaluate(triggerEventsJS).Do(targetCtx)
 
-				// 硬编码，待优化
+				// 等待以上 JS 中 setTimeout 执行
+				// 页面 Ajax 化程度越高，等待时间越长
 				time.Sleep(1 * time.Minute)
 			}()
 		case *page.EventJavascriptDialogOpening:
