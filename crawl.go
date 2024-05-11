@@ -30,7 +30,7 @@ type bindingPayload struct {
 	Source string `json:"source"`
 }
 
-func crawl(req *request, reqs *[]request, conf map[string]interface{}) {
+func crawl(req request, reqs *[]request, conf map[string]interface{}) {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", !conf["mode"].(bool)),
 	)

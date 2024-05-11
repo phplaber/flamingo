@@ -32,8 +32,8 @@ func getFileExtFromUrl(rawUrl string) (string, error) {
 	return u.Path[pos:len(u.Path)], nil
 }
 
-func geneRequest(method string, url string, headers map[string]interface{}, data string, source string) *request {
-	return &request{
+func geneRequest(method string, url string, headers map[string]interface{}, data string, source string) request {
+	return request{
 		method:  method,
 		url:     url,
 		headers: headers,
@@ -42,7 +42,7 @@ func geneRequest(method string, url string, headers map[string]interface{}, data
 	}
 }
 
-func saveRequest(reqs *[]request, req *request) {
+func saveRequest(reqs *[]request, req request) {
 	url := strings.ToLower(req.url)
 
 	// 过滤非 HTTP 请求
@@ -67,6 +67,6 @@ func saveRequest(reqs *[]request, req *request) {
 	}
 
 	mu.Lock()
-	*reqs = append(*reqs, *req)
+	*reqs = append(*reqs, req)
 	mu.Unlock()
 }
