@@ -26,15 +26,19 @@ $ make build_all
 
 ```bash
 $ ./bin/darwin-amd64/flamingo -h
-Usage of ./flamingo:
-  -browser_timeout duration
-    	Browser timeout (default 5m0s)
+Usage of ./bin/darwin-amd64/flamingo:
   -chromium_path string
     	The path of chromium executable file
   -cookie string
     	HTTP Cookie (e.g. "PHPSESSID=a8d127e..")
+  -crawl_total_time duration
+    	Crawl total time (default 30m0s)
   -gui
     	The browser mode, default headless
+  -output_path string
+    	The path of output json file (default "requests.json")
+  -tab_concurrent_quantity int
+    	Number of concurrent tab pages (default 3)
   -tab_timeout duration
     	Tab timeout (default 3m0s)
   -trigger_event_interval int
@@ -54,9 +58,9 @@ Usage of ./flamingo:
 使用 flamingo 前，请先下载 [Chromium](https://www.chromium.org/getting-involved/download-chromium) 可执行程序，并通过 **chromium_path** 设置 Chromium 路径。在已安装 Chrome 应用的平台上运行，如果不指定路径，将从默认安装路径查找并启动 Chrome。
 
 ```bash
-$ ./flamingo -url http://testphp.vulnweb.com/AJAX/index.php
+$ ./bin/darwin-amd64/flamingo -url http://testphp.vulnweb.com/
 ```
 
 运行结果截图：
 
-![demo](./demo.jpg)
+![demo](./demo.png)
