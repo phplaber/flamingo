@@ -16,7 +16,7 @@ import (
 var version string
 
 func main() {
-	var url, ua, cookie, chromiumPath string
+	var url, ua, cookie, chromiumPath, outputPath string
 	flag.StringVar(&url, "url", "", "Initial target URL")
 	flag.StringVar(&ua, "ua", "flamingo", "User-Agent header")
 	flag.StringVar(&cookie, "cookie", "", "HTTP Cookie (e.g. \"PHPSESSID=a8d127e..\")")
@@ -26,6 +26,7 @@ func main() {
 	triggerEventInterval := flag.Int("trigger_event_interval", 5000, "Trigger event interval, unit:ms")
 	mode := flag.Bool("gui", false, "The browser mode, default headless")
 	flag.StringVar(&chromiumPath, "chromium_path", "", "The path of chromium executable file")
+	flag.StringVar(&outputPath, "output_path", "requests.json", "The path of output json file")
 	tabConcurrentQuantity := flag.Int("tab_concurrent_quantity", 3, "Number of concurrent tab pages")
 	printVer := flag.Bool("version", false, "The version of program")
 	flag.Parse()
@@ -88,15 +89,16 @@ func main() {
 			"Cookie":     cookie},
 	}
 
+	// 初始化浏览器
+	allocCtx, cancel := initBrowser(browserConf)
+	defer cancel()
+	// 创建标签页，执行爬虫任务
 	var requests []request
 	saveRequest(&requests, geneRequest("GET", url, tabConf["headers"].(map[string]interface{}), "", "entrance"))
 
-	// 初始化浏览器
-	allocCtx, cancel := initBrowser(browserConf)
-	// 创建标签页，执行爬虫任务
 	crawl(&requests, allocCtx, tabConf)
-	cancel()
 
 	// 输出 json
-	outputRst(requests)
+	outputRst(requests, outputPath)
+	log.Printf("[+] Generate result file: %s\n", outputPath)
 }

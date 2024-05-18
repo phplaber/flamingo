@@ -15,11 +15,11 @@ var saveMu sync.Mutex
 var extWlist = []string{".php", ".asp", ".jsp", ".html", ".htm"}
 
 type request struct {
-	method  string
-	url     string
-	headers map[string]interface{}
-	data    string //base64 编码
-	source  string
+	Method  string                 `json:"method"`
+	URL     string                 `json:"url"`
+	Headers map[string]interface{} `json:"headers"`
+	Data    string                 `json:"data"` //base64 编码
+	Source  string                 `json:"source"`
 }
 
 func getFileExtFromUrl(rawUrl string) (string, error) {
@@ -35,7 +35,7 @@ func getFileExtFromUrl(rawUrl string) (string, error) {
 }
 
 func checkReq(req request) bool {
-	newurl := strings.ToLower(req.url)
+	newurl := strings.ToLower(req.URL)
 
 	// 过滤非 HTTP 请求
 	if !strings.HasPrefix(newurl, "http") {
@@ -75,11 +75,11 @@ func checkReq(req request) bool {
 
 func geneRequest(method string, url string, headers map[string]interface{}, data string, source string) request {
 	return request{
-		method:  method,
-		url:     url,
-		headers: headers,
-		data:    b64.StdEncoding.EncodeToString([]byte(data)),
-		source:  source,
+		Method:  method,
+		URL:     url,
+		Headers: headers,
+		Data:    b64.StdEncoding.EncodeToString([]byte(data)),
+		Source:  source,
 	}
 }
 
@@ -88,13 +88,13 @@ func saveRequest(reqs *[]request, req request) {
 	// 去重
 	exists := false
 	for _, r := range *reqs {
-		if r.method == req.method && r.url == req.url {
+		if r.Method == req.Method && r.URL == req.URL {
 			exists = true
 			break
 		}
 	}
 	if !exists {
-		log.Printf("[%s] %s\n", req.method, req.url)
+		log.Printf("[%s] %s\n", req.Method, req.URL)
 		*reqs = append(*reqs, req)
 	}
 	saveMu.Unlock()

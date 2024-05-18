@@ -47,12 +47,10 @@ func initBrowser(conf map[string]interface{}) (context.Context, context.CancelFu
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", !conf["mode"].(bool)),
 	)
-
 	// 设置 chromium 可执行文件路径
 	if conf["chromiumPath"].(string) != "" {
 		opts = append(opts, chromedp.ExecPath(conf["chromiumPath"].(string)))
 	}
-
 	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
 
 	return allocCtx, cancel
@@ -124,8 +122,8 @@ func runTab(num int, reqC chan request, rstC chan<- request, tctx context.Contex
 								if checkReq(newReq) {
 									rstC <- newReq
 									mu.Lock()
-									if !contains(stored, "GET"+newReq.url) {
-										stored = append(stored, "GET"+newReq.url)
+									if !contains(stored, "GET"+newReq.URL) {
+										stored = append(stored, "GET"+newReq.URL)
 										reqC <- newReq
 									}
 									mu.Unlock()
@@ -227,7 +225,7 @@ func runTab(num int, reqC chan request, rstC chan<- request, tctx context.Contex
 
 					if ev.NetworkID == requestID && ev.FrameID == topFrameID {
 						// 当前标签页
-						if pausedURL == req.url && method == "GET" {
+						if pausedURL == req.URL && method == "GET" {
 							// 顶层框架导航
 							// 放行
 							fetch.ContinueRequest(pausedRequestID).Do(targetCtx)
@@ -239,8 +237,8 @@ func runTab(num int, reqC chan request, rstC chan<- request, tctx context.Contex
 							if checkReq(newReq) {
 								rstC <- newReq
 								mu.Lock()
-								if method == "GET" && !contains(stored, "GET"+newReq.url) {
-									stored = append(stored, "GET"+newReq.url)
+								if method == "GET" && !contains(stored, "GET"+newReq.URL) {
+									stored = append(stored, "GET"+newReq.URL)
 									reqC <- newReq
 								}
 								mu.Unlock()
@@ -315,12 +313,12 @@ func runTab(num int, reqC chan request, rstC chan<- request, tctx context.Contex
 					var payload bindingPayload
 					_ = json.Unmarshal([]byte(ev.Payload), &payload)
 
-					newReq := geneRequest("GET", payload.URL, req.headers, "", payload.Source)
+					newReq := geneRequest("GET", payload.URL, req.Headers, "", payload.Source)
 					if checkReq(newReq) {
 						rstC <- newReq
 						mu.Lock()
-						if !contains(stored, "GET"+newReq.url) {
-							stored = append(stored, "GET"+newReq.url)
+						if !contains(stored, "GET"+newReq.URL) {
+							stored = append(stored, "GET"+newReq.URL)
 							reqC <- newReq
 						}
 						mu.Unlock()
@@ -352,8 +350,8 @@ func runTab(num int, reqC chan request, rstC chan<- request, tctx context.Contex
 				}
 				return nil
 			}),
-			network.SetExtraHTTPHeaders(req.headers),
-			chromedp.Navigate(req.url),
+			network.SetExtraHTTPHeaders(req.Headers),
+			chromedp.Navigate(req.URL),
 		); err != nil && !strings.Contains(err.Error(), "net::ERR_ABORTED") {
 			log.Fatal("run brower error: ", err.Error())
 		}
@@ -370,7 +368,7 @@ func runTab(num int, reqC chan request, rstC chan<- request, tctx context.Contex
 			// 正常
 		case <-time.After(conf["tabTimeout"].(time.Duration)):
 			// 超时
-			log.Printf("[-] crawl timeout: %s\n", req.url)
+			log.Printf("[-] crawl timeout: %s\n", req.URL)
 		}
 		if num > 1 {
 			cancel()
