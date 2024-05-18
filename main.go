@@ -20,12 +20,13 @@ func main() {
 	flag.StringVar(&url, "url", "", "Initial target URL")
 	flag.StringVar(&ua, "ua", "flamingo", "User-Agent header")
 	flag.StringVar(&cookie, "cookie", "", "HTTP Cookie (e.g. \"PHPSESSID=a8d127e..\")")
-	browserTimeout := flag.Duration("browser_timeout", 5*time.Minute, "Browser timeout")
 	tabTimeout := flag.Duration("tab_timeout", 3*time.Minute, "Tab timeout")
 	waitJSExecTime := flag.Duration("wait_js_exec_time", 1*time.Minute, "Wait js exec timeout")
+	crawlTotalTime := flag.Duration("crawl_total_time", 30*time.Minute, "Crawl total time")
 	triggerEventInterval := flag.Int("trigger_event_interval", 5000, "Trigger event interval, unit:ms")
 	mode := flag.Bool("gui", false, "The browser mode, default headless")
 	flag.StringVar(&chromiumPath, "chromium_path", "", "The path of chromium executable file")
+	tabConcurrentQuantity := flag.Int("tab_concurrent_quantity", 3, "Number of concurrent tab pages")
 	printVer := flag.Bool("version", false, "The version of program")
 	flag.Parse()
 
@@ -48,6 +49,8 @@ func main() {
 	if url == "" || !strings.HasPrefix(url, "http") {
 		log.Fatalln("URL is required and is prefixed with 'http'")
 	}
+	// 将初始 url 保存在环境变量
+	os.Setenv("ENTRANCE_URL", strings.ToLower(url))
 
 	if cookie != "" {
 		var newCookies []string
@@ -67,26 +70,33 @@ func main() {
 		}
 	}
 
-	// 自定义配置
-	conf := map[string]interface{}{
-		"chromiumPath":         chromiumPath,
-		"browserTimeout":       *browserTimeout,
-		"tabTimeout":           *tabTimeout,
-		"waitJSExecTime":       *waitJSExecTime,
-		"triggerEventInterval": *triggerEventInterval,
-		"mode":                 *mode,
+	// 浏览器配置
+	browserConf := map[string]interface{}{
+		"mode":         *mode,
+		"chromiumPath": chromiumPath,
 	}
 
-	// 爬虫入口
-	entrance := geneRequest("GET", url, map[string]interface{}{"User-Agent": ua, "Cookie": cookie}, "", "entrance")
+	// 标签页配置
+	tabConf := map[string]interface{}{
+		"tabTimeout":            *tabTimeout,
+		"waitJSExecTime":        *waitJSExecTime,
+		"crawlTotalTime":        *crawlTotalTime,
+		"triggerEventInterval":  *triggerEventInterval,
+		"tabConcurrentQuantity": *tabConcurrentQuantity,
+		"headers": map[string]interface{}{
+			"User-Agent": ua,
+			"Cookie":     cookie},
+	}
 
-	// 爬取页面各处 request
 	var requests []request
-	saveRequest(&requests, entrance)
-	crawl(entrance, &requests, conf)
+	saveRequest(&requests, geneRequest("GET", url, tabConf["headers"].(map[string]interface{}), "", "entrance"))
+
+	// 初始化浏览器
+	allocCtx, cancel := initBrowser(browserConf)
+	// 创建标签页，执行爬虫任务
+	crawl(&requests, allocCtx, tabConf)
+	cancel()
 
 	// 输出 json
-	for _, req := range requests {
-		log.Println(req)
-	}
+	outputRst(requests)
 }
