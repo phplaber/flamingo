@@ -2,18 +2,20 @@ package main
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"log"
+	"os"
 )
 
 func outputRst(requests []request, filepath string) {
-	jsonData, err := json.Marshal(requests)
+	file, err := os.Create(filepath)
 	if err != nil {
-		log.Fatalf("[-] Marshal requests error: %v\n", err)
+		log.Fatalf("[-] Create file error: %v\n", err)
 	}
-
-	err = ioutil.WriteFile(filepath, jsonData, 0644)
-	if err != nil {
-		log.Fatalf("[-] Write file error: %v\n", err)
+	defer file.Close()
+	
+	// 使用流式编码，减少内存占用
+	encoder := json.NewEncoder(file)
+	if err := encoder.Encode(requests); err != nil {
+		log.Fatalf("[-] Encode requests error: %v\n", err)
 	}
 }

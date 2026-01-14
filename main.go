@@ -15,6 +15,47 @@ import (
 // 版本号 编译时赋值
 var version string
 
+// processCookie 处理 cookie 字符串，移除多余空格并格式化
+func processCookie(cookie string) string {
+	if cookie == "" {
+		return ""
+	}
+	cookies := strings.Split(cookie, ";")
+	var sb strings.Builder
+	sb.Grow(len(cookie)) // 预分配内存
+	
+	first := true
+	for _, c := range cookies {
+		if !strings.Contains(c, "=") {
+			continue
+		}
+		if !first {
+			sb.WriteString("; ")
+		}
+		sb.WriteString(strings.TrimSpace(c))
+		first = false
+	}
+	return sb.String()
+}
+
+// validateURL 验证 URL 格式
+func validateURL(url string) error {
+	if url == "" || !strings.HasPrefix(url, "http") {
+		return errors.New("URL is required and is prefixed with 'http'")
+	}
+	return nil
+}
+
+// validateChromiumPath 验证 Chromium 路径
+func validateChromiumPath(path string) error {
+	if path != "" {
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("%s does not exist", path)
+		}
+	}
+	return nil
+}
+
 func main() {
 	var url, ua, cookie, chromiumPath, outputPath string
 	flag.StringVar(&url, "url", "", "Initial target URL")
@@ -47,58 +88,49 @@ func main() {
 	}()
 
 	// 校验、处理程序参数
-	if url == "" || !strings.HasPrefix(url, "http") {
-		log.Fatalln("URL is required and is prefixed with 'http'")
+	if err := validateURL(url); err != nil {
+		log.Fatalln(err)
 	}
 	// 将初始 url 保存在环境变量
 	os.Setenv("ENTRANCE_URL", strings.ToLower(url))
 
-	if cookie != "" {
-		var newCookies []string
-		cookies := strings.Split(cookie, ";")
-		for _, c := range cookies {
-			if !strings.Contains(c, "=") {
-				continue
-			}
-			newCookies = append(newCookies, strings.ReplaceAll(c, " ", ""))
-		}
-		cookie = strings.Join(newCookies, "; ")
-	}
+	// 处理 cookie
+	cookie = processCookie(cookie)
 
-	if chromiumPath != "" {
-		if _, err := os.Stat(chromiumPath); errors.Is(err, os.ErrNotExist) {
-			log.Fatalf("%s does not exist\n", chromiumPath)
-		}
+	// 验证 Chromium 路径
+	if err := validateChromiumPath(chromiumPath); err != nil {
+		log.Fatalln(err)
 	}
 
 	// 浏览器配置
-	browserConf := map[string]interface{}{
-		"mode":         *mode,
-		"chromiumPath": chromiumPath,
+	browserConf := &BrowserConfig{
+		Headless:     *mode,
+		ChromiumPath: chromiumPath,
 	}
 
 	// 标签页配置
-	tabConf := map[string]interface{}{
-		"tabTimeout":            *tabTimeout,
-		"waitJSExecTime":        *waitJSExecTime,
-		"crawlTotalTime":        *crawlTotalTime,
-		"triggerEventInterval":  *triggerEventInterval,
-		"tabConcurrentQuantity": *tabConcurrentQuantity,
-		"headers": map[string]interface{}{
+	tabConf := &TabConfig{
+		TabTimeout:            *tabTimeout,
+		WaitJSExecTime:        *waitJSExecTime,
+		CrawlTotalTime:        *crawlTotalTime,
+		TriggerEventInterval:  *triggerEventInterval,
+		TabConcurrentQuantity: *tabConcurrentQuantity,
+		Headers: map[string]interface{}{
 			"User-Agent": ua,
-			"Cookie":     cookie},
+			"Cookie":     cookie,
+		},
 	}
 
 	// 初始化浏览器
 	allocCtx, cancel := initBrowser(browserConf)
 	defer cancel()
 	// 创建标签页，执行爬虫任务
-	var requests []request
-	saveRequest(&requests, geneRequest("GET", url, tabConf["headers"].(map[string]interface{}), "", "entrance"))
+	store := NewRequestStore()
+	store.SaveRequest(geneRequest("GET", url, tabConf.Headers, "", "entrance"))
 
-	crawl(&requests, allocCtx, tabConf)
+	crawl(store, allocCtx, tabConf)
 
 	// 输出 json
-	outputRst(requests, outputPath)
+	outputRst(store.GetRequests(), outputPath)
 	log.Printf("[+] Generate result file: %s\n", outputPath)
 }

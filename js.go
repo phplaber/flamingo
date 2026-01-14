@@ -8,21 +8,16 @@ const (
 		});
 
 		// Pass the Plugins Length Test.
-		// Overwrite the plugins property to use a custom getter.
 		Object.defineProperty(n, 'plugins', {
-		  // This just needs to have length > 0 for the current test,
-		  // but we could mock the plugins too if necessary.
 		  get: () => [1, 2, 3, 4, 5],
 		});
 
 		// Pass the Languages Test.
-		// Overwrite the plugins property to use a custom getter.
 		Object.defineProperty(n, 'languages', {
 		  get: () => ['zh-CN', 'zh'],
 		});
 
 		// Pass the Chrome Test.
-		// We can mock this in as much depth as we need for the test.
 		w.chrome = {
 		  runtime: {},
 		};
@@ -37,146 +32,237 @@ const (
 	})(window, navigator, window.navigator);`
 
 	initHookJS = `
+		// ==================== 常量定义 ====================
+		const DOM_EVENT_FLAG = 'data-dom-events';
+		const LINK_ATTRS = ['href', 'src', 'data-href', 'data-url', 'data-link'];
+		const JS_PROTOCOL = 'javascript:';
+
+		// ==================== 任务队列 ====================
+		// 使用 Promise 队列确保任务顺序执行
+		const TaskQueue = {
+			queue: Promise.resolve(),
+			pendingCount: 0,
+			
+			// 添加任务到队列，确保顺序执行
+			add(task) {
+				this.pendingCount++;
+				this.queue = this.queue.then(() => this.runTask(task)).catch(() => {});
+				return this.queue;
+			},
+			
+			// 执行单个任务
+			async runTask(task) {
+				window.__flamingoStability.recordTask();
+				try {
+					await task();
+				} catch (e) {}
+				// 等待 DOM 更新完成
+				await this.waitForDOMUpdate();
+				this.pendingCount--;
+			},
+			
+			// 等待 DOM 更新完成（使用 requestAnimationFrame + 微任务）
+			waitForDOMUpdate() {
+				return new Promise(resolve => {
+					requestAnimationFrame(() => {
+						// 微任务确保在渲染后执行
+						queueMicrotask(resolve);
+					});
+				});
+			},
+			
+			// 批量添加任务
+			addAll(tasks) {
+				tasks.forEach(task => this.add(task));
+				return this.queue;
+			},
+			
+			// 检查队列是否空闲
+			isIdle() {
+				return this.pendingCount === 0;
+			}
+		};
+		
+		// ==================== 稳定性监测 ====================
+		// 全局稳定性状态
+		window.__flamingoStability = {
+			lastMutationTime: Date.now(),
+			lastTaskTime: Date.now(),
+			
+			// 更新 mutation 时间
+			recordMutation() {
+				this.lastMutationTime = Date.now();
+			},
+			
+			// 更新任务时间
+			recordTask() {
+				this.lastTaskTime = Date.now();
+			},
+			
+			// 检查是否稳定（无 mutation 且任务队列空闲）
+			isStable(quietPeriodMs) {
+				const now = Date.now();
+				const mutationQuiet = (now - this.lastMutationTime) >= quietPeriodMs;
+				const taskQuiet = (now - this.lastTaskTime) >= quietPeriodMs;
+				const queueIdle = TaskQueue.isIdle();
+				return mutationQuiet && taskQuiet && queueIdle;
+			}
+		};
+
+		// ==================== 工具函数 ====================
+		// 随机选择数组中的一项
+		function pickone(arr) {
+			return arr[Math.floor(Math.random() * arr.length)];
+		}
+
+		// 从指定字符区间生成指定长度的字符串
+		function random(chars, len) {
+			let result = '';
+			for (let i = 0; i < len; i++) {
+				result += chars.charAt(Math.floor(Math.random() * chars.length));
+			}
+			return result;
+		}
+
+		// 安全发送链接
+		function safeSendLink(url, source) {
+			try {
+				const absUrl = new URL(url, document.baseURI).href;
+				window.sendLink(JSON.stringify({url: absUrl, source: source}));
+			} catch (e) {}
+		}
+
+		// 判断是否为 JS 伪协议
+		function isJsProtocol(link) {
+			return link && link.toLowerCase().startsWith(JS_PROTOCOL);
+		}
+
+		// 安全执行 JS 代码
+		function safeEval(code) {
+			try { eval(code); } catch (e) {}
+		}
+
+		// 处理链接：执行 JS 伪协议或发送链接
+		function processLink(link, source) {
+			if (!link) return;
+			if (isJsProtocol(link)) {
+				TaskQueue.add(() => safeEval(link));
+			} else {
+				safeSendLink(link, source);
+			}
+		}
+
+		// ==================== Hook 函数 ====================
 		// hook 打开、关闭标签页函数
 		window.open = function (url) {
-			window.sendLink(JSON.stringify({url: new URL(url, document.baseURI).href, source: 'open'}));
+			safeSendLink(url, 'open');
 		};
 		window.close = function () {};
 
-		// 锁定
-		const actions = ['open', 'close'];
-		actions.forEach((action) => {
+		// 锁定 open/close
+		['open', 'close'].forEach((action) => {
 			Object.defineProperty(window, action, {
 				writable: false, 
 				configurable: false,
 			});
 		});
 
-		// 劫持表单重置
-		// 避免清空表单内容
+		// 劫持表单重置，避免清空表单内容
 		HTMLFormElement.prototype.reset = function() {};
 		Object.defineProperty(HTMLFormElement.prototype, 'reset', {
 			writable: false, 
 			configurable: false,
 		});
 
-		const dom_event_flag = 'data-dom-events';
+		// ==================== 事件记录 ====================
+		// 记录元素绑定的事件
+		function recordEvent(element, eventName) {
+			const existing = element.getAttribute(DOM_EVENT_FLAG);
+			if (existing) {
+				element.setAttribute(DOM_EVENT_FLAG, existing + ',' + eventName);
+			} else {
+				element.setAttribute(DOM_EVENT_FLAG, eventName);
+			}
+		}
 
-		// 记录 DOM0 事件注册
-		// 即：使用 onXYZ 属性绑定方式注册事件
-		// 使用属性的 setter 函数在注册事件时注入代码
-		// 枚举 HTML DOM 事件: https://www.w3school.com.cn/jsref/dom_obj_event.asp
-		const events = ['abort', 'afterprint', 'animationend', 'animationiteration', 'animationstart', 'beforeprint', 'beforeunload', 'blur', 'canplay', 'canplaythrough', 'change', 'click', 'contextmenu', 'copy', 'cut', 'dblclick', 'drag', 'dragend', 'dragenter', 'dragleave', 'dragover', 'dragstart', 'drop', 'durationchange', 'ended', 'error', 'focus', 'focusin', 'focusout', 'fullscreenchange', 'fullscreenerror', 'hashchange', 'input', 'invalid', 'keydown', 'keypress', 'keyup', 'load', 'loadeddata', 'loadedmetadata', 'loadstart', 'message', 'mousedown', 'mouseenter', 'mouseleave', 'mousemove', 'mouseout', 'mouseover', 'mouseup', 'mousewheel', 'offline', 'online', 'open', 'pagehide', 'pageshow', 'paste', 'pause', 'play', 'playing', 'popstate', 'progress', 'ratechange', 'reset', 'resize', 'scroll', 'search', 'seeked', 'seeking', 'select', 'show', 'stalled', 'storage', 'submit', 'suspend', 'timeupdate', 'toggle', 'touchcancel', 'touchend', 'touchmove', 'touchstart', 'transitionend', 'unload', 'volumechange', 'waiting', 'wheel'];
+		// 记录 DOM0 事件注册（使用 onXYZ 属性绑定方式）
+		const DOM_EVENTS = ['abort', 'afterprint', 'animationend', 'animationiteration', 'animationstart', 'beforeprint', 'beforeunload', 'blur', 'canplay', 'canplaythrough', 'change', 'click', 'contextmenu', 'copy', 'cut', 'dblclick', 'drag', 'dragend', 'dragenter', 'dragleave', 'dragover', 'dragstart', 'drop', 'durationchange', 'ended', 'error', 'focus', 'focusin', 'focusout', 'fullscreenchange', 'fullscreenerror', 'hashchange', 'input', 'invalid', 'keydown', 'keypress', 'keyup', 'load', 'loadeddata', 'loadedmetadata', 'loadstart', 'message', 'mousedown', 'mouseenter', 'mouseleave', 'mousemove', 'mouseout', 'mouseover', 'mouseup', 'mousewheel', 'offline', 'online', 'open', 'pagehide', 'pageshow', 'paste', 'pause', 'play', 'playing', 'popstate', 'progress', 'ratechange', 'reset', 'resize', 'scroll', 'search', 'seeked', 'seeking', 'select', 'show', 'stalled', 'storage', 'submit', 'suspend', 'timeupdate', 'toggle', 'touchcancel', 'touchend', 'touchmove', 'touchstart', 'transitionend', 'unload', 'volumechange', 'waiting', 'wheel'];
 
-		events.forEach((eName) => {
-			Object.defineProperty(HTMLElement.prototype, 'on' + eName, {
+		// 使用 WeakMap 存储原始事件处理器
+		const eventHandlers = new WeakMap();
+
+		DOM_EVENTS.forEach((eName) => {
+			const propName = 'on' + eName;
+			const originalDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, propName);
+			
+			Object.defineProperty(HTMLElement.prototype, propName, {
 				configurable: false,
-				set: function(newValue){
-					// 注入代码，给指定属性注册事件
-					if (!this.hasAttribute(dom_event_flag)) {
-						this.setAttribute(dom_event_flag, eName);
-					} else {
-						this.setAttribute(dom_event_flag, this.getAttribute(dom_event_flag) + ',' + eName);
+				enumerable: true,
+				get: function() {
+					const handlers = eventHandlers.get(this);
+					return handlers ? handlers[eName] : null;
+				},
+				set: function(handler) {
+					// 记录事件绑定
+					recordEvent(this, eName);
+					// 存储处理器到元素
+					let handlers = eventHandlers.get(this);
+					if (!handlers) {
+						handlers = {};
+						eventHandlers.set(this, handlers);
 					}
-					// 保留原始逻辑
-					// newValue 为绑定事件回调函数
-					window['on' + eName] = newValue;
+					handlers[eName] = handler;
+					// 使用原始 setter（如果存在）
+					if (originalDescriptor && originalDescriptor.set) {
+						originalDescriptor.set.call(this, handler);
+					}
 				}
 			});
 		});
 
-		// 记录 DOM2 事件注册
-		// 即：使用 addEventListener 方式注册事件
-		let _addEventListener = Element.prototype.addEventListener;
-		Element.prototype.addEventListener = function() {
-			// 注入代码，给指定属性注册事件
-			if (!this.hasAttribute(dom_event_flag)) {
-				this.setAttribute(dom_event_flag, arguments[0]);
-			} else {
-				this.setAttribute(dom_event_flag, this.getAttribute(dom_event_flag) + ',' + arguments[0]);
-			}
-			// 保留原始逻辑
-			_addEventListener.apply(this, arguments);
+		// 记录 DOM2 事件注册（使用 addEventListener 方式）
+		const _addEventListener = Element.prototype.addEventListener;
+		Element.prototype.addEventListener = function(type, listener, options) {
+			recordEvent(this, type);
+			_addEventListener.call(this, type, listener, options);
 		};
-
-		// 初始化工作
-		// 可能包含链接的一些属性名
-		const linkAttr = ['href', 'src', 'data-href', 'data-url', 'data-link'];
-
-		// 随机选择数组中的一项
-		function pickone(arr) {
-			return arr[Math.floor(Math.random()*arr.length)];
-		}
-
-		// 从指定字符区间选择字符生成指定长度的字符串
-		function random(chars, len) {
-			let result = '';
-			let counter = 0;
-			while (counter < len) {
-			  result += chars.charAt(Math.floor(Math.random() * chars.length));
-			  counter += 1;
-			}
-			return result;
-		}
 	`
 
 	mutationObserverJS = `(function(){
-		let delay = 0;
+		// 处理新增节点中的链接
+		function processAddedNode(node) {
+			if (node.nodeType !== Node.ELEMENT_NODE) return;
+			
+			node.querySelectorAll('a').forEach((aNode) => {
+				let link = null;
+				LINK_ATTRS.some(attr => {
+					const val = aNode.getAttribute(attr);
+					if (val) { link = val; return true; }
+					return false;
+				});
+				processLink(link, 'dom');
+			});
+		}
+
+		// 处理属性变化
+		function processAttributeChange(mutation) {
+			if (mutation.target.nodeType !== Node.ELEMENT_NODE) return;
+			if (!LINK_ATTRS.includes(mutation.attributeName)) return;
+			
+			const link = mutation.target.getAttribute(mutation.attributeName);
+			processLink(link, 'dom');
+		}
 
 		// 创建观察器实例
-		let observer = new MutationObserver(function(mutations){
+		const observer = new MutationObserver((mutations) => {
+			// 记录 mutation 时间
+			window.__flamingoStability.recordMutation();
+			
 			mutations.forEach((mutation) => {
 				if (mutation.type === 'childList') {
-					// 有新的节点
-					for	(let i = 0; i < mutation.addedNodes.length; i++) {
-						let	addedNode = mutation.addedNodes[i];
-						if (addedNode.nodeType === Node.ELEMENT_NODE) {
-							let aNodes = addedNode.getElementsByTagName('a');
-							for (let j = 0; j < aNodes.length; j++) {
-								let link = ''; 
-								linkAttr.some(attr => (link = aNodes[j].getAttribute(attr)));
-								if (link.toLowerCase().startsWith('javascript:')) {
-									// 执行 javascript 代码
-									try {
-										if (!delay) {
-											eval(link);
-										} else {
-											setTimeout(() => {
-												eval(link);
-											}, delay);
-										}
-										delay += 300;
-									} catch (e) {}
-								} else if (link) {
-									// 记录链接
-									window.sendLink(JSON.stringify({url: new URL(link, document.baseURI).href, source: 'dom'}));
-								}
-							}
-						}
-					}
+					mutation.addedNodes.forEach(processAddedNode);
 				} else if (mutation.type === 'attributes') {
-					// 属性发生变化
-					if (mutation.target.nodeType === Node.ELEMENT_NODE) {
-						if (linkAttr.includes(mutation.attributeName)) {
-							let link = mutation.target.getAttribute(mutation.attributeName);
-							if (link.toLowerCase().startsWith('javascript:')) {
-								// 执行 javascript 代码
-								try {
-									if (!delay) {
-										eval(link);
-									} else {
-										setTimeout(() => {
-											eval(link);
-										}, delay);
-									}
-									delay += 300;
-								} catch (e) {}
-							} else {
-								// 记录链接
-								window.sendLink(JSON.stringify({url: new URL(link, document.baseURI).href, source: 'dom'}));
-							}
-						}
-					}
+					processAttributeChange(mutation);
 				}
 			});
 		});
@@ -186,41 +272,13 @@ const (
 			subtree: true,
 			childList: true,
 			attributes: true,
-			attributeFilter: linkAttr
+			attributeFilter: LINK_ATTRS
 		});
 	})();`
 
 	// 填充和提交表单
 	fillAndSubmitFormsJS = `(function(){
-		/*
-		1. 填充表单
-			1-1. 遍历表单元素 (input, select, textarea)
-			1-2. 识别输入类型
-				- text
-				- password
-				- radio
-				- checkbox
-				- color
-				- date
-				- datetime-local
-				- email
-				- month
-				- number
-				- range
-				- search
-				- time
-				- url
-				- week
-			1-3. 按类型和name属性值填充表单
-		2. 提交表单
-			2-1. 点击提交按钮 (<input type="submit">)
-			2-2. 点击其他按钮
-				- <button>
-				- <input type="button">
-		*/
-
-		let delay = 0;
-		let corpus = {
+		const corpus = {
 			digit: '123456789',
 			letter: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ',
 			symbol: '~!@#$%^&*()',
@@ -235,202 +293,218 @@ const (
 			domain: ['.com', '.net', '.tech'],
 		};
 
-		// 创建隐藏的表单提交 target
-		let iframe = document.createElement('iframe');
-		iframe.style.display = 'none';
-		iframe.name = 'thiis_is_a_iframe_7';
-		document.body.appendChild(iframe);
-		
-		let forms = [];
-		// 表单元素 select 默认选择第一个 option，暂不处理
-		// 填充 input 和 textarea
-		for (let i = 0; i < document.forms.length; i++) {
-			let form = document.forms[i];
-			// 将表单 target 指向 iframe
-			form.setAttribute('target', 'thiis_is_a_iframe_7');
-			for (let j = 0; j < form.length; j++) {
-				let ele = form[j];
-				if (ele.nodeName == 'INPUT') {
-					if (ele.type == 'text') {
-						if (/((number)|(phone))|(^tel)/i.test(ele.name)) {
-							// 手机
-							ele.value = '139' + random(corpus.digit, 8);
-						} else if (/mail|email/i.test(ele.name)) {
-							// 邮箱
-							ele.value = pickone(corpus.firstname) + '.' + pickone(corpus.lastname) + '@' + random(corpus.digit, 5) + pickone(corpus.domain);
-						} else if (/url|website|blog|homepage/i.test(ele.name)) {
-							// 主页
-							ele.value = 'https://www.' + random(corpus.digit, 5) + pickone(corpus.domain);
-						} else if (/(date)|(^birth)/i.test(ele.name)) {
-							// 生日
-							ele.value = pickone(corpus.year) + pickone(corpus.month) + pickone(corpus.day);
-						} else if (/^addr/i.test(ele.name)) {
-							// 地址
-							ele.value = pickone(corpus.address);
-						} else {
-							ele.value = 'flamingo';
-						}
-					} else if (ele.type == 'password') {
-						ele.value = random(corpus.letter, 4) + random(corpus.symbol, 2) + random(corpus.digit, 4);
-					} else if (ele.type == 'radio' || ele.type == 'checkbox') {
-						ele.checked = true;
-					} else if (ele.type == 'month' || ele.type == 'week' || ele.type == 'date' || ele.type == 'datetime-local' || ele.type == 'time') {
-						let year = pickone(corpus.year);
-						let month = pickone(corpus.month);
-						let day = pickone(corpus.day);
-						if (ele.type == 'month') {
-							ele.value = year + '-' + month;
-						} else if (ele.type == 'week') {
-							ele.value = year + '-W10';
-						} else if (ele.type == 'date') {
-							ele.value = year + '-' + month + '-' + day;
-						} else if (ele.type == 'datetime-local') {
-							ele.value = year + '-' + month + '-' + day + ' 10:00';
-						} else {
-							ele.value = '10:00';
-						}
-					} else if (ele.type == 'email') {
-						ele.value = pickone(corpus.firstname) + '.' + pickone(corpus.lastname) + '@' + random(corpus.digit, 5) + pickone(corpus.domain);
-					} else if (ele.type == 'number' || ele.type == 'range') {
-						if (ele.hasAttribute('min') && ele.hasAttribute('max')) {
-							ele.value = Math.floor(Math.random() * (ele.max - ele.min + 1) + ele.min);
-						} else if (ele.hasAttribute('min')) {
-							ele.value = ele.min + 1;
-						} else if (ele.hasAttribute('max')) {
-							ele.value = ele.max - 1;
-						} else {
-							ele.value = random(corpus.digit, 1);
-						}
-					} else if (ele.type == 'search') {
-						ele.value = 'flamingo';
-					} else if (ele.type == 'url') {
-						ele.value = 'https://www.' + random(corpus.digit, 5) + pickone(corpus.domain);
-					}
-				} else if (ele.nodeName == 'TEXTAREA') {
-					ele.value = 'tested by flamingo';
-				}
-			}
-			forms.push(form);
+		// 生成各类型数据
+		const generators = {
+			phone: () => '139' + random(corpus.digit, 8),
+			email: () => pickone(corpus.firstname) + '.' + pickone(corpus.lastname) + '@' + random(corpus.digit, 5) + pickone(corpus.domain),
+			url: () => 'https://www.' + random(corpus.digit, 5) + pickone(corpus.domain),
+			date: () => pickone(corpus.year) + pickone(corpus.month) + pickone(corpus.day),
+			address: () => pickone(corpus.address),
+			password: () => random(corpus.letter, 4) + random(corpus.symbol, 2) + random(corpus.digit, 4),
+			text: () => 'flamingo',
+			textarea: () => 'tested by flamingo',
+		};
+
+		// 根据 name 属性推断文本输入类型
+		function inferTextType(name) {
+			if (/((number)|(phone))|(^tel)/i.test(name)) return 'phone';
+			if (/mail|email/i.test(name)) return 'email';
+			if (/url|website|blog|homepage/i.test(name)) return 'url';
+			if (/(date)|(^birth)/i.test(name)) return 'date';
+			if (/^addr/i.test(name)) return 'address';
+			return 'text';
 		}
 
-		// 提交表单
-		forms.forEach((form) => {
-			try {
-				if (!delay) {
-					form.submit();
-				} else {
-					setTimeout(() => {
-						form.submit();
-					}, delay);
-				}
-				delay += 500;
-			} catch(e) {
-				// 处理表单元素的 id 或 name 属性值为 submit 的情况
-				for (let i = 0; i < form.length; i++) {
-					let element = form[i];
-					if ((element.nodeName == 'INPUT' && (element.type == 'submit' || element.type == 'button')) || element.nodeName == 'BUTTON') {
-        				// 点击提交按钮或其它按钮
-        				try {
-							if (!delay) {
-								element.click();
-							} else {
-								setTimeout(() => {
-									element.click();
-								}, delay);
-							}
-							delay += 500;
-        				} catch (e) {}
-					}
-				}
+		// 生成日期时间相关值
+		function generateDateTimeValue(type) {
+			const year = pickone(corpus.year);
+			const month = pickone(corpus.month);
+			const day = pickone(corpus.day);
+			
+			const formats = {
+				'month': () => year + '-' + month,
+				'week': () => year + '-W10',
+				'date': () => year + '-' + month + '-' + day,
+				'datetime-local': () => year + '-' + month + '-' + day + 'T10:00',
+				'time': () => '10:00',
+			};
+			return formats[type]();
+		}
+
+		// 生成数值类型值
+		function generateNumberValue(ele) {
+			const min = ele.hasAttribute('min') ? parseInt(ele.min) : null;
+			const max = ele.hasAttribute('max') ? parseInt(ele.max) : null;
+			
+			if (min !== null && max !== null) {
+				return Math.floor(Math.random() * (max - min + 1) + min);
+			} else if (min !== null) {
+				return min + 1;
+			} else if (max !== null) {
+				return max - 1;
 			}
+			return random(corpus.digit, 1);
+		}
+
+		// 填充单个输入元素
+		function fillInput(ele) {
+			const type = ele.type;
+			
+			switch (type) {
+				case 'text':
+				case 'search':
+					ele.value = generators[inferTextType(ele.name)]();
+					break;
+				case 'password':
+					ele.value = generators.password();
+					break;
+				case 'radio':
+				case 'checkbox':
+					ele.checked = true;
+					break;
+				case 'month':
+				case 'week':
+				case 'date':
+				case 'datetime-local':
+				case 'time':
+					ele.value = generateDateTimeValue(type);
+					break;
+				case 'email':
+					ele.value = generators.email();
+					break;
+				case 'number':
+				case 'range':
+					ele.value = generateNumberValue(ele);
+					break;
+				case 'url':
+					ele.value = generators.url();
+					break;
+			}
+		}
+
+		// 创建隐藏的表单提交 target
+		const IFRAME_NAME = 'flamingo_hidden_iframe';
+		const iframe = document.createElement('iframe');
+		iframe.style.display = 'none';
+		iframe.name = IFRAME_NAME;
+		document.body.appendChild(iframe);
+		
+		// 填充所有表单
+		const forms = Array.from(document.forms);
+		forms.forEach((form) => {
+			form.setAttribute('target', IFRAME_NAME);
+			
+			Array.from(form.elements).forEach((ele) => {
+				if (ele.nodeName === 'INPUT') {
+					fillInput(ele);
+				} else if (ele.nodeName === 'TEXTAREA') {
+					ele.value = generators.textarea();
+				}
+			});
+		});
+
+		// 提交单个表单
+		function submitForm(form) {
+			try {
+				form.submit();
+			} catch (e) {
+				// 处理表单元素的 id 或 name 属性值为 submit 的情况
+				const buttons = Array.from(form.elements).filter(el => 
+					(el.nodeName === 'INPUT' && (el.type === 'submit' || el.type === 'button')) || 
+					el.nodeName === 'BUTTON'
+				);
+				// 将按钮点击加入队列
+				buttons.forEach((btn) => {
+					TaskQueue.add(() => {
+						try { btn.click(); } catch (e) {}
+					});
+				});
+			}
+		}
+
+		// 将所有表单提交加入队列
+		forms.forEach((form) => {
+			TaskQueue.add(() => submitForm(form));
 		});
 	})();`
 
 	// 遍历元素，收集链接
 	collectLinksJS = `(function(){
-		let treeWalker = document.createTreeWalker(
+		const treeWalker = document.createTreeWalker(
 			document.documentElement,
 			NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT,
-			{ acceptNode(node) { return NodeFilter.FILTER_ACCEPT; } }
+			{ acceptNode: () => NodeFilter.FILTER_ACCEPT }
 		);
 
 		// 检测注释里的完整 URL
-		const urlRe = /https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&\/=]*)/g;
+		const urlRe = /https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_+.~#?&/=]*)/gi;
 		
-		while(treeWalker.nextNode()) {
-			let cNode = treeWalker.currentNode;
-			if (cNode.nodeType === Node.COMMENT_NODE) {
-				// 注释节点
+		while (treeWalker.nextNode()) {
+			const node = treeWalker.currentNode;
+			
+			if (node.nodeType === Node.COMMENT_NODE) {
+				// 注释节点：提取所有 URL
+				const content = node.nodeValue;
 				let match;
-				while ((match = urlRe.exec(cNode.nodeValue)) !== null) {
-					window.sendLink(JSON.stringify({url: new URL(match[0], document.baseURI).href, source: 'comment'}));
+				while ((match = urlRe.exec(content)) !== null) {
+					safeSendLink(match[0], 'comment');
 				}
+				urlRe.lastIndex = 0; // 重置正则状态
 			} else {
-				// 元素节点
-				for (let i = 0; i < cNode.attributes.length; i++) {
-					let attr = cNode.attributes[i];
-
-					if (linkAttr.includes(attr.nodeName) && !attr.nodeValue.toLowerCase().startsWith('javascript:')) {
-						window.sendLink(JSON.stringify({url: new URL(attr.nodeValue, document.baseURI).href, source: 'href'}));
+				// 元素节点：检查链接属性
+				LINK_ATTRS.forEach((attrName) => {
+					const attrValue = node.getAttribute(attrName);
+					if (attrValue && !isJsProtocol(attrValue)) {
+						safeSendLink(attrValue, 'href');
 					}
-				}
+				});
 			}
 		}
 	})();`
 
 	// 触发事件和执行 JS 伪协议
 	triggerEventsJS = `(function(){
-		let delay = 0;
-		let treeWalker = document.createTreeWalker(
+		const treeWalker = document.createTreeWalker(
 			document.documentElement,
 			NodeFilter.SHOW_ELEMENT,
-			{ acceptNode(node) { return NodeFilter.FILTER_ACCEPT; } }
+			{ acceptNode: () => NodeFilter.FILTER_ACCEPT }
 		);
 
-		let eList = [];
-		while(treeWalker.nextNode()) {
-			let cNode = treeWalker.currentNode;
-			for (let i = 0; i < cNode.attributes.length; i++) {
-				let attr = cNode.attributes[i];
-
-				// 执行 JS 伪协议
-				if (linkAttr.includes(attr.nodeName) && attr.nodeValue.toLowerCase().startsWith('javascript:')) {
-					try {
-						if (!delay) {
-							eval(attr.nodeValue);
-						} else {
-							setTimeout(() => {
-								eval(attr.nodeValue);
-							}, delay);
-						}
-						delay += %d;
-					} catch (e) {}
+		const jsTasks = [];
+		const eventList = [];
+		
+		while (treeWalker.nextNode()) {
+			const node = treeWalker.currentNode;
+			
+			Array.from(node.attributes).forEach((attr) => {
+				// 收集 JS 伪协议
+				if (LINK_ATTRS.includes(attr.nodeName) && isJsProtocol(attr.nodeValue)) {
+					jsTasks.push(() => safeEval(attr.nodeValue));
 				}
 
 				// 收集事件
 				if (attr.nodeName.startsWith('on')) {
 					// 内联事件
-					eList.push({"ename": attr.nodeName.substring(2), "cnode": cNode});
-				} else if (attr.nodeName === dom_event_flag) {
+					eventList.push({name: attr.nodeName.substring(2), node: node});
+				} else if (attr.nodeName === DOM_EVENT_FLAG) {
 					// DOM 事件
-					let eArr = attr.nodeValue.split(',');
-					eArr.forEach((eName) => eList.push({"ename": eName, "cnode": cNode}));
+					attr.nodeValue.split(',').forEach((eName) => {
+						eventList.push({name: eName, node: node});
+					});
 				}
-			}
+			});
 		}
 
-		// 触发事件
-		eList.forEach((e) => {
-			try {
-				if (!delay) {
-					e.cnode.dispatchEvent(new Event(e.ename));
-				} else {
-					setTimeout(() => {
-						e.cnode.dispatchEvent(new Event(e.ename));
-					}, delay);
-				}
-				delay += %d;
-			} catch (err) {}
+		// 将 JS 伪协议执行加入队列
+		jsTasks.forEach(task => TaskQueue.add(task));
+
+		// 将事件触发加入队列
+		eventList.forEach((e) => {
+			TaskQueue.add(() => {
+				try {
+					e.node.dispatchEvent(new Event(e.name, {bubbles: true}));
+				} catch (err) {}
+			});
 		});
 	})();`
 )
