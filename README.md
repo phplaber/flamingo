@@ -9,11 +9,35 @@
 
 ## ✨ 特性
 
+### 核心功能
 - 🌐 驱动 Headless Chrome，构建原生浏览器爬虫
 - 🔗 遍历 DOM 节点，获取页面中静态链接，包括注释中的链接
 - 🎯 使用 Hook 技术收集 DOM 0级和 DOM 2级事件，并自动化触发
 - 👀 监控 DOM 变化，发现动态产生的链接
 - 📝 遍历表单节点，自动化填充和提交表单
+
+### 增强功能
+- 🔍 **深度 URL 发现**
+  - 从内联事件处理器（onclick、onload 等）中提取 URL
+  - 从 `<script>` 标签内容中提取硬编码的 URL 和路径
+  - 从 CSS 样式中提取 URL
+  - 从 XHR/Fetch 响应的 JSON 中提取 URL
+  - Hook History API（pushState、replaceState、hashchange）
+  - 自动解析 robots.txt 和 sitemap.xml 获取种子 URL
+  - 扩展链接属性检测（支持 action、formaction、data-* 等 15+ 属性）
+
+- ⚡ **性能优化**
+  - 动态并发调整（基于响应时间和错误率自动调节）
+  - URL 归一化和智能去重
+  - 优化的连接池（HTTP/2 支持，更高的并发限制）
+  - 扩展资源阻断（减少不必要的资源加载）
+
+- 🛡️ **健壮性改进**
+  - 分级错误处理和自动重试（指数退避）
+  - 标签页崩溃自动恢复
+  - 优雅关闭（确保中断时保存结果）
+  - 结构化日志系统（支持文件输出和日志级别）
+  - 内存管理（请求数量限制、定期 GC）
 
 ## 📦 安装
 
@@ -81,6 +105,13 @@ chmod +x ./bin/darwin-amd64/flamingo
 | `-wait_js_exec_time` | 等待 JS 执行超时时间 | `1m` |
 | `-crawl_total_time` | 爬虫总超时时间 | `30m` |
 | `-trigger_event_interval` | 事件触发间隔（毫秒） | `5000` |
+| `-progress_interval` | 进度输出间隔 | `2s` |
+| `-verbose` | 详细输出模式 | `false` |
+| `-quiet` | 静默模式（仅显示错误） | `false` |
+| `-log_path` | 日志文件路径 | 标准错误输出 |
+| `-log_level` | 日志级别（debug/info/warn/error） | `info` |
+| `-seed_urls` | 从 robots.txt 和 sitemap.xml 获取种子 URL | `true` |
+| `-max_requests` | 最大存储请求数量 | `100000` |
 | `-version` | 显示版本号 | - |
 
 ### 示例
@@ -99,6 +130,20 @@ chmod +x ./bin/darwin-amd64/flamingo
 ./bin/darwin-amd64/flamingo -url https://example.com/ \
   -chromium_path /path/to/chromium \
   -tab_concurrent_quantity 5
+
+# 详细模式，显示完整进度信息
+./bin/darwin-amd64/flamingo -url https://example.com/ -verbose
+
+# 静默模式，仅显示错误
+./bin/darwin-amd64/flamingo -url https://example.com/ -quiet
+
+# 启用日志文件和调试级别
+./bin/darwin-amd64/flamingo -url https://example.com/ \
+  -log_path flamingo.log \
+  -log_level debug
+
+# 禁用种子 URL 获取
+./bin/darwin-amd64/flamingo -url https://example.com/ -seed_urls=false
 ```
 
 ## 📸 运行截图

@@ -29,34 +29,114 @@ type bindingPayload struct {
 	Source string `json:"source"`
 }
 
+// AdaptiveConcurrency 动态并发控制
+type AdaptiveConcurrency struct {
+	mu           sync.Mutex
+	current      int
+	min, max     int
+	successCount int
+	errorCount   int
+	totalTime    time.Duration
+	requestCount int
+}
+
+// NewAdaptiveConcurrency 创建新的动态并发控制器
+func NewAdaptiveConcurrency(min, max int) *AdaptiveConcurrency {
+	return &AdaptiveConcurrency{
+		current: min,
+		min:     min,
+		max:     max,
+	}
+}
+
+// RecordSuccess 记录成功请求
+func (ac *AdaptiveConcurrency) RecordSuccess(duration time.Duration) {
+	ac.mu.Lock()
+	defer ac.mu.Unlock()
+	ac.successCount++
+	ac.totalTime += duration
+	ac.requestCount++
+}
+
+// RecordError 记录错误请求
+func (ac *AdaptiveConcurrency) RecordError() {
+	ac.mu.Lock()
+	defer ac.mu.Unlock()
+	ac.errorCount++
+	ac.requestCount++
+}
+
+// Adjust 调整并发数
+func (ac *AdaptiveConcurrency) Adjust() int {
+	ac.mu.Lock()
+	defer ac.mu.Unlock()
+	
+	if ac.requestCount == 0 {
+		return ac.current
+	}
+	
+	errorRate := float64(ac.errorCount) / float64(ac.requestCount)
+	avgRespTime := ac.totalTime / time.Duration(ac.requestCount)
+	
+	// 错误率低且响应时间快，增加并发
+	if errorRate < 0.05 && avgRespTime < 500*time.Millisecond && ac.current < ac.max {
+		ac.current++
+	} else if (errorRate > 0.2 || avgRespTime > 2*time.Second) && ac.current > ac.min {
+		// 错误率高或响应时间慢，降低并发
+		ac.current--
+	}
+	
+	// 定期重置计数器
+	if ac.requestCount > 100 {
+		ac.successCount = 0
+		ac.errorCount = 0
+		ac.totalTime = 0
+		ac.requestCount = 0
+	}
+	
+	return ac.current
+}
+
+// GetCurrent 获取当前并发数
+func (ac *AdaptiveConcurrency) GetCurrent() int {
+	ac.mu.Lock()
+	defer ac.mu.Unlock()
+	return ac.current
+}
+
 // httpClient 包级别的 HTTP 客户端，用于重定向响应的链接提取，复用连接池
 var httpClient = &http.Client{
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
 	},
 	Transport: &http.Transport{
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 10,
-		IdleConnTimeout:     90 * time.Second,
+		MaxIdleConns:        200,
+		MaxIdleConnsPerHost: 20,
+		MaxConnsPerHost:     50,
+		IdleConnTimeout:     120 * time.Second,
+		DisableKeepAlives:   false,
+		ForceAttemptHTTP2:   true,
 	},
-	Timeout: 10 * time.Second,
+	Timeout: 15 * time.Second,
 }
 
 // 资源类型判断 map，避免每次创建切片和遍历
 var (
 	// 需要丢弃的资源类型（不影响 DOM 结构的静态资源）
 	failResourceTypes = map[string]bool{
-		"Image":            true,
-		"Media":            true,
-		"Font":             true,
-		"TextTrack":        true,
-		"Prefetch":         true,
-		"Manifest":         true,
-		"SignedExchange":   true,
-		"Ping":             true,
+		"Image":              true,
+		"Media":              true,
+		"Font":               true,
+		"TextTrack":          true,
+		"Prefetch":           true,
+		"Manifest":           true,
+		"SignedExchange":     true,
+		"Ping":               true,
 		"CSPViolationReport": true,
-		"Preflight":        true,
-		"Other":            true,
+		"Preflight":          true,
+		"Other":              true,
+		"SourceMap":          true,
+		"WebBundle":          true,
 	}
 	
 	// 需要放行的资源类型（样式表和脚本）
@@ -213,14 +293,14 @@ func handleRequestWillBeSent(ev *network.EventRequestWillBeSent, tabState *TabSt
 
 		res, err := httpClient.Do(req)
 		if err != nil {
-			log.Println("request error: ", err)
+			GetGlobalLogger().ErrorWithURL("Failed to fetch redirect response", ev.RedirectResponse.URL, err)
 			return
 		}
 		defer res.Body.Close()
 		// 加载 html 文档
 		doc, err := goquery.NewDocumentFromReader(res.Body)
 		if err != nil {
-			log.Println("load doc error: ", err)
+			GetGlobalLogger().ErrorWithURL("Failed to parse redirect response HTML", ev.RedirectResponse.URL, err)
 			return
 		}
 
@@ -232,8 +312,7 @@ func handleRequestWillBeSent(ev *network.EventRequestWillBeSent, tabState *TabSt
 				relLink, _ := url.Parse(link)
 				absLink := base.ResolveReference(relLink)
 				newReq := geneRequest("GET", absLink.String(), ev.Request.Headers, "", "redirect")
-				if checkReq(newReq) {
-					store.SaveRequest(newReq)
+				if store.SaveRequest(newReq) {
 					key := "GET" + newReq.URL
 					if !state.IsVisited(key) {
 						state.MarkVisited(key)
@@ -272,7 +351,7 @@ func handleRequestPaused(ev *fetch.EventRequestPaused, ctx context.Context, tabS
 	if failResourceTypes[resourceType] {
 		u, _ := url.Parse(pausedURL)
 		newReq := geneRequest(method, pausedURL, headers, postData, "dom")
-		if u.RawQuery != "" && checkReq(newReq) {
+		if u.RawQuery != "" {
 			store.SaveRequest(newReq)
 		}
 		_ = fetch.FailRequest(pausedRequestID, network.ErrorReasonAborted).Do(targetCtx)
@@ -294,10 +373,18 @@ func handleRequestPaused(ev *fetch.EventRequestPaused, ctx context.Context, tabS
 	// 异步请求
 	if resourceType == "XHR" || resourceType == "Fetch" {
 		newReq := geneRequest(method, pausedURL, headers, postData, strings.ToLower(resourceType))
-		if checkReq(newReq) {
-			store.SaveRequest(newReq)
-		}
+		store.SaveRequest(newReq)
+		
+		// 继续请求并尝试获取响应体解析 JSON 中的 URL
 		_ = fetch.ContinueRequest(pausedRequestID).Do(targetCtx)
+		
+		// 在后台尝试解析响应（不阻塞）
+		go func() {
+			time.Sleep(100 * time.Millisecond) // 等待响应
+			if body, err := fetch.GetResponseBody(pausedRequestID).Do(targetCtx); err == nil {
+				extractUrlsFromJSON(string(body), req.Headers, store, state, reqC)
+			}
+		}()
 		return
 	}
 
@@ -341,8 +428,7 @@ func handleRequestPaused(ev *fetch.EventRequestPaused, ctx context.Context, tabS
 			// 阻断
 			_ = fetch.FailRequest(pausedRequestID, network.ErrorReasonAborted).Do(targetCtx)
 			newReq := geneRequest(method, pausedURL, headers, postData, "navigation")
-			if checkReq(newReq) {
-				store.SaveRequest(newReq)
+			if store.SaveRequest(newReq) {
 				if method == "GET" {
 					key := "GET" + newReq.URL
 					if !state.IsVisited(key) {
@@ -448,8 +534,7 @@ func handleBindingCalled(ev *runtime.EventBindingCalled, tabState *TabState, req
 
 	req := tabState.GetCurrentReq()
 	newReq := geneRequest("GET", payload.URL, req.Headers, "", payload.Source)
-	if checkReq(newReq) {
-		store.SaveRequest(newReq)
+	if store.SaveRequest(newReq) {
 		key := "GET" + newReq.URL
 		if !state.IsVisited(key) {
 			state.MarkVisited(key)
@@ -458,7 +543,135 @@ func handleBindingCalled(ev *runtime.EventBindingCalled, tabState *TabState, req
 	}
 }
 
-func runTab(num int, reqC chan request, store *RequestStore, tctx context.Context, conf *TabConfig, state *CrawlerState) {
+// extractUrlsFromJSON 从 JSON 响应中提取 URL
+func extractUrlsFromJSON(body string, headers map[string]interface{}, store *RequestStore, state *CrawlerState, reqC chan request) {
+	// 简单的 URL 提取：查找所有看起来像 URL 的字符串
+	// 匹配 "url": "xxx", "link": "xxx", "href": "xxx" 等
+	var data interface{}
+	if err := json.Unmarshal([]byte(body), &data); err != nil {
+		return
+	}
+	
+	urls := extractURLsFromInterface(data)
+	
+	for _, u := range urls {
+		newReq := geneRequest("GET", u, headers, "", "json")
+		if store.SaveRequest(newReq) {
+			key := "GET" + newReq.URL
+			if !state.IsVisited(key) {
+				state.MarkVisited(key)
+				select {
+				case reqC <- newReq:
+				default:
+					// 队列满了，跳过
+				}
+			}
+		}
+	}
+}
+
+// extractURLsFromInterface 递归提取 interface{} 中的 URL
+func extractURLsFromInterface(data interface{}) []string {
+	var urls []string
+	
+	switch v := data.(type) {
+	case map[string]interface{}:
+		for key, value := range v {
+			// 检查键名是否与 URL 相关
+			keyLower := strings.ToLower(key)
+			if strings.Contains(keyLower, "url") || 
+			   strings.Contains(keyLower, "link") || 
+			   strings.Contains(keyLower, "href") || 
+			   strings.Contains(keyLower, "path") ||
+			   strings.Contains(keyLower, "redirect") {
+				if strValue, ok := value.(string); ok {
+					if strings.HasPrefix(strValue, "http") || strings.HasPrefix(strValue, "/") {
+						urls = append(urls, strValue)
+					}
+				}
+			}
+			// 递归处理
+			urls = append(urls, extractURLsFromInterface(value)...)
+		}
+	case []interface{}:
+		for _, item := range v {
+			urls = append(urls, extractURLsFromInterface(item)...)
+		}
+	case string:
+		// 检查字符串本身是否是 URL
+		if strings.HasPrefix(v, "http://") || strings.HasPrefix(v, "https://") || strings.HasPrefix(v, "/") {
+			urls = append(urls, v)
+		}
+	}
+	
+	return urls
+}
+
+// TabRecoveryConfig 标签页恢复配置
+type TabRecoveryConfig struct {
+	maxRestarts   int
+	cooldownPeriod time.Duration
+	restartCount  int
+	mu            sync.Mutex
+}
+
+// NewTabRecoveryConfig 创建标签页恢复配置
+func NewTabRecoveryConfig(maxRestarts int) *TabRecoveryConfig {
+	return &TabRecoveryConfig{
+		maxRestarts:   maxRestarts,
+		cooldownPeriod: 5 * time.Second,
+		restartCount:  0,
+	}
+}
+
+// CanRestart 检查是否可以重启
+func (trc *TabRecoveryConfig) CanRestart() bool {
+	trc.mu.Lock()
+	defer trc.mu.Unlock()
+	return trc.restartCount < trc.maxRestarts
+}
+
+// IncrementRestart 增加重启计数
+func (trc *TabRecoveryConfig) IncrementRestart() {
+	trc.mu.Lock()
+	defer trc.mu.Unlock()
+	trc.restartCount++
+}
+
+// GetCooldown 获取冷却时间
+func (trc *TabRecoveryConfig) GetCooldown() time.Duration {
+	trc.mu.Lock()
+	defer trc.mu.Unlock()
+	// 随着重启次数增加，增加冷却时间
+	return time.Duration(trc.restartCount+1) * trc.cooldownPeriod
+}
+
+// runTabWithRecovery 带崩溃恢复的标签页运行
+func runTabWithRecovery(num int, reqC chan request, store *RequestStore, tctx context.Context, conf *TabConfig, state *CrawlerState, progressStats *ProgressStats, recoveryConfig *TabRecoveryConfig) {
+	defer func() {
+		if r := recover(); r != nil {
+			if recoveryConfig.CanRestart() {
+				recoveryConfig.IncrementRestart()
+				cooldown := recoveryConfig.GetCooldown()
+				GetGlobalLogger().Error(fmt.Sprintf("Tab %d crashed (restart %d/%d): %v, cooldown %v", num, recoveryConfig.restartCount, recoveryConfig.maxRestarts, r, cooldown), nil)
+				
+				// 冷却后重新创建标签页
+				select {
+				case <-time.After(cooldown):
+					go runTabWithRecovery(num, reqC, store, tctx, conf, state, progressStats, recoveryConfig)
+				case <-tctx.Done():
+					GetGlobalLogger().Info(fmt.Sprintf("Tab %d context canceled during cooldown, not restarting", num))
+					return
+				}
+			} else {
+				GetGlobalLogger().Error(fmt.Sprintf("Tab %d crashed and reached max restarts (%d), not restarting", num, recoveryConfig.maxRestarts), nil)
+			}
+		}
+	}()
+	runTab(num, reqC, store, tctx, conf, state, progressStats)
+}
+
+func runTab(num int, reqC chan request, store *RequestStore, tctx context.Context, conf *TabConfig, state *CrawlerState, progressStats *ProgressStats) {
 	var ctx context.Context = tctx
 	var cancel context.CancelFunc
 	if num > 1 {
@@ -474,6 +687,9 @@ func runTab(num int, reqC chan request, store *RequestStore, tctx context.Contex
 	// 创建事件处理工作池（每个 tab 一次），限制并发 goroutine 数量为 20
 	pool := NewEventWorkerPool(20)
 	defer pool.Close()
+	
+	// 创建 wg 等待超时 channel
+	wgDone := make(chan struct{})
 
 	// 注册事件监听器（每个 tab 一次）
 	chromedp.ListenTarget(ctx, func(ev interface{}) {
@@ -560,49 +776,104 @@ func runTab(num int, reqC chan request, store *RequestStore, tctx context.Contex
 			return nil
 		}),
 	); err != nil {
-		log.Fatal("tab init error: ", err.Error())
+		GetGlobalLogger().Error(fmt.Sprintf("Tab %d init error", num), err)
+		return
 	}
 
 	// 处理请求队列
-	for req := range reqC {
-		// 更新当前请求状态
-		tabState.UpdateRequestState(req)
-
-		// 运行标签页，执行爬虫任务
-		if err := chromedp.Run(ctx,
-			network.SetExtraHTTPHeaders(req.Headers),
-			chromedp.Navigate(req.URL),
-		); err != nil && !strings.Contains(err.Error(), "net::ERR_ABORTED") {
-			log.Fatal("run brower error: ", err.Error())
-		}
-
-		// 等待 goroutine 执行完成
-		c := make(chan struct{})
-		go func() {
-			defer close(c)
-			wg.Wait()
-		}()
-
+	for {
 		select {
-		case <-c:
-			// 正常
-		case <-time.After(conf.TabTimeout):
-			// 超时
-			log.Printf("[-] crawl timeout: %s\n", req.URL)
+		case req, ok := <-reqC:
+			if !ok {
+				// 通道已关闭，退出
+				GetGlobalLogger().Debug(fmt.Sprintf("Tab %d: request channel closed, exiting", num))
+				return
+			}
+			
+			// 更新标签页状态为处理中
+			if progressStats != nil {
+				progressStats.UpdateTabState(num, "processing", req.Method, req.URL)
+				// 更新当前爬取的 URL
+				progressStats.UpdateField("current", req.URL)
+			}
+			
+			// 更新当前请求状态
+			tabState.UpdateRequestState(req)
+			
+			// 运行标签页，执行爬虫任务（带重试）
+			err := retryWithBackoff(func() error {
+				return chromedp.Run(ctx,
+					network.SetExtraHTTPHeaders(req.Headers),
+					chromedp.Navigate(req.URL),
+				)
+			}, 2, 500*time.Millisecond, req.URL)
+			
+			if err != nil && !strings.Contains(err.Error(), "net::ERR_ABORTED") {
+				GetGlobalLogger().ErrorWithURL("Error crawling URL", req.URL, err)
+				if progressStats != nil {
+					progressStats.UpdateTabState(num, "waiting", "", "")
+					progressStats.IncrementError()
+				}
+				// 不要 Fatal，继续处理下一个请求
+				continue
+			}
+
+			// 等待 goroutine 执行完成（带上下文和超时保护）
+			go func() {
+				wg.Wait()
+				close(wgDone)
+			}()
+
+			select {
+			case <-wgDone:
+				// 正常完成
+				// 更新标签页状态为等待
+				if progressStats != nil {
+					progressStats.UpdateTabState(num, "waiting", "", "")
+					progressStats.IncrementProcessed()
+				}
+				// 重新创建 wgDone channel 用于下一次请求
+				wgDone = make(chan struct{})
+				
+			case <-time.After(conf.TabTimeout):
+				// 超时
+				GetGlobalLogger().WarnWithURL("Tab timeout", req.URL)
+				if progressStats != nil {
+					progressStats.UpdateTabState(num, "waiting", "", "")
+					progressStats.IncrementError()
+				}
+				// 重新创建 wgDone channel 用于下一次请求
+				wgDone = make(chan struct{})
+				
+			case <-ctx.Done():
+				// 上下文取消
+				GetGlobalLogger().Info(fmt.Sprintf("Tab %d context canceled", num))
+				return
+			}
+			
+		case <-ctx.Done():
+			// 上下文取消，退出
+			GetGlobalLogger().Info(fmt.Sprintf("Tab %d context canceled, exiting", num))
+			return
 		}
 	}
 }
 
-func crawl(store *RequestStore, allocCtx context.Context, conf *TabConfig) {
+func crawl(store *RequestStore, allocCtx context.Context, conf *TabConfig, progressStats *ProgressStats) {
+	// 创建爬取生命周期上下文
+	crawlCtx, crawlCancel := context.WithTimeout(allocCtx, conf.CrawlTotalTime)
+	defer crawlCancel()
+	
 	// 创建第一个标签页
 	ctx, cancel := chromedp.NewContext(
-		allocCtx,
+		crawlCtx,
 		//chromedp.WithDebugf(log.Printf),
 	)
 	defer cancel()
 
 	// 执行 Run 方法才会真正创建标签页
 	if err := chromedp.Run(ctx); err != nil {
+		GetGlobalLogger().Error("Failed to create first tab", err)
 		log.Fatalln(err)
 	}
 
@@ -613,42 +884,48 @@ func crawl(store *RequestStore, allocCtx context.Context, conf *TabConfig) {
 	// 创建爬虫状态管理器
 	state := NewCrawlerState()
 
-	// 创建多个标签页，并发执行爬虫任务
+	// 创建多个标签页，并发执行爬虫任务（带崩溃恢复）
 	for i := 1; i <= conf.TabConcurrentQuantity; i++ {
-		go runTab(i, reqC, store, ctx, conf, state)
+		recoveryConfig := NewTabRecoveryConfig(3) // 最多重启3次
+		go runTabWithRecovery(i, reqC, store, ctx, conf, state, progressStats, recoveryConfig)
 	}
 
 	reqC <- store.GetRequests()[0]
 
 	// 爬取调度：支持提前收敛
-	deadline := time.Now().Add(conf.CrawlTotalTime)
 	idleWindow := conf.WaitJSExecTime // 使用 WaitJSExecTime 作为空闲窗口
 	lastRequestCount := store.GetRequestCount()
 	lastActivityTime := time.Now()
 	
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
+	
+	defer close(reqC) // 确保在函数退出时关闭通道
 
 	for {
 		select {
 		case <-ticker.C:
-			// 检查是否达到硬上限
-			if time.Now().After(deadline) {
-				log.Println("[+] Crawl time limit reached")
-				return
-			}
+			// 更新进度统计
+			currentRequestCount := store.GetRequestCount()
+			progressStats.UpdateField("total", currentRequestCount)
+			progressStats.UpdateField("queued", len(reqC))
+			progressStats.UpdateField("processed", currentRequestCount-len(reqC))
 			
 			// 检查是否可以提前收敛
-			currentRequestCount := store.GetRequestCount()
 			if currentRequestCount > lastRequestCount {
 				// 有新请求，更新活动时间
 				lastActivityTime = time.Now()
 				lastRequestCount = currentRequestCount
 			} else if len(reqC) == 0 && time.Since(lastActivityTime) >= idleWindow {
 				// 队列为空且已空闲足够长时间，提前结束
-				log.Println("[+] Crawl completed: queue idle")
+				GetGlobalLogger().Info("Crawl completed: queue idle")
 				return
 			}
+			
+		case <-crawlCtx.Done():
+			// 上下文超时或取消
+			GetGlobalLogger().Info("Crawl context done (timeout or canceled)")
+			return
 		}
 	}
 }

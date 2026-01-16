@@ -34,8 +34,9 @@ const (
 	initHookJS = `
 		// ==================== 常量定义 ====================
 		const DOM_EVENT_FLAG = 'data-dom-events';
-		const LINK_ATTRS = ['href', 'src', 'data-href', 'data-url', 'data-link'];
+		const LINK_ATTRS = ['href', 'src', 'data-href', 'data-url', 'data-link', 'action', 'data-src', 'data-action', 'data-target', 'data-ajax', 'data-api', 'formaction', 'poster', 'data-lazy', 'data-original', 'srcset', 'cite', 'longdesc'];
 		const JS_PROTOCOL = 'javascript:';
+		const EVENT_ATTRS = ['onclick', 'onmouseover', 'onload', 'onfocus', 'onchange', 'onsubmit', 'ondblclick', 'onmousedown', 'onmouseup'];
 
 		// ==================== 任务队列 ====================
 		// 使用 Promise 队列确保任务顺序执行
@@ -150,6 +151,95 @@ const (
 			} else {
 				safeSendLink(link, source);
 			}
+		}
+
+		// 从内联事件处理器中提取 URL
+		function extractUrlsFromInlineEvents(node) {
+			EVENT_ATTRS.forEach(attr => {
+				const value = node.getAttribute(attr);
+				if (value) {
+					// 匹配 location.href='xxx', window.location='xxx', window.open('xxx'), fetch('xxx')
+					const patterns = [
+						/location\.href\s*=\s*['"]([^'"]+)['"]/gi,
+						/window\.location\s*=\s*['"]([^'"]+)['"]/gi,
+						/window\.open\s*\(\s*['"]([^'"]+)['"]/gi,
+						/fetch\s*\(\s*['"]([^'"]+)['"]/gi,
+						/\.ajax\s*\(\s*\{[^}]*url:\s*['"]([^'"]+)['"]/gi,
+						/\$\.get\s*\(\s*['"]([^'"]+)['"]/gi,
+						/\$\.post\s*\(\s*['"]([^'"]+)['"]/gi
+					];
+					patterns.forEach(re => {
+						let match;
+						while ((match = re.exec(value)) !== null) {
+							safeSendLink(match[1], 'inline-event');
+						}
+						re.lastIndex = 0;
+					});
+				}
+			});
+		}
+
+		// 从 script 标签中提取 URL
+		function extractUrlsFromScripts() {
+			document.querySelectorAll('script').forEach(script => {
+				const content = script.textContent;
+				if (!content) return;
+				
+				// 匹配完整 URL (使用单引号和双引号)
+				const fullUrlPattern = /['"](https?:\/\/[^\s'"]+)['"]/g;
+				let match;
+				while ((match = fullUrlPattern.exec(content)) !== null) {
+					safeSendLink(match[1], 'script-content');
+				}
+				fullUrlPattern.lastIndex = 0;
+				
+				// 匹配相对路径（以 / 开头）
+				const pathPattern = /['"](\/[a-zA-Z0-9_\-./]+(?:\?[^'"\s]*)?)['"]/g;
+				while ((match = pathPattern.exec(content)) !== null) {
+					const path = match[1];
+					// 过滤掉一些常见的非 URL 路径
+					if (!path.match(/\.(js|css|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot)$/i)) {
+						safeSendLink(path, 'script-content');
+					}
+				}
+			});
+		}
+
+		// 从 CSS 中提取 URL
+		function extractUrlsFromStyles() {
+			document.querySelectorAll('style').forEach(el => {
+				const cssText = el.textContent || '';
+				const urlPattern = /url\s*\(\s*['"]?([^'")]+)['"]?\s*\)/gi;
+				let match;
+				while ((match = urlPattern.exec(cssText)) !== null) {
+					const url = match[1];
+					// 只提取可能是页面的 URL，过滤图片和字体
+					if (!url.match(/\.(png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot|ico)$/i)) {
+						safeSendLink(url, 'css');
+					}
+				}
+			});
+		}
+
+		// Hook History API
+		if (window.history) {
+			const originalPushState = history.pushState;
+			const originalReplaceState = history.replaceState;
+			
+			history.pushState = function(state, title, url) {
+				if (url) safeSendLink(url, 'pushState');
+				return originalPushState.apply(this, arguments);
+			};
+			
+			history.replaceState = function(state, title, url) {
+				if (url) safeSendLink(url, 'replaceState');
+				return originalReplaceState.apply(this, arguments);
+			};
+			
+			// 监听 hashchange 事件
+			window.addEventListener('hashchange', () => {
+				safeSendLink(location.href, 'hashchange');
+			});
 		}
 
 		// ==================== Hook 函数 ====================
@@ -438,6 +528,8 @@ const (
 
 		// 检测注释里的完整 URL
 		const urlRe = /https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_+.~#?&/=]*)/gi;
+		// 检测注释里的相对路径
+		const pathRe = /['"](\/[a-zA-Z0-9_\-./]+(?:\?[^'"]*)?)['"]/g;
 		
 		while (treeWalker.nextNode()) {
 			const node = treeWalker.currentNode;
@@ -450,6 +542,12 @@ const (
 					safeSendLink(match[0], 'comment');
 				}
 				urlRe.lastIndex = 0; // 重置正则状态
+				
+				// 提取相对路径
+				while ((match = pathRe.exec(content)) !== null) {
+					safeSendLink(match[1], 'comment');
+				}
+				pathRe.lastIndex = 0;
 			} else {
 				// 元素节点：检查链接属性
 				LINK_ATTRS.forEach((attrName) => {
@@ -458,8 +556,17 @@ const (
 						safeSendLink(attrValue, 'href');
 					}
 				});
+				
+				// 提取内联事件中的 URL
+				extractUrlsFromInlineEvents(node);
 			}
 		}
+		
+		// 提取 script 标签中的 URL
+		extractUrlsFromScripts();
+		
+		// 提取 CSS 中的 URL
+		extractUrlsFromStyles();
 	})();`
 
 	// 触发事件和执行 JS 伪协议
